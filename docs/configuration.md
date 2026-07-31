@@ -49,14 +49,20 @@ profile name). The driver resolves it at startup and on every reload, so switchi
 is live. If `active` is missing or empty, the driver falls back to plain
 `config.toml`.
 
-```bash
-./build/vader5d --list-profiles            # list profiles in <config-dir>/profiles
-./build/vader5d --profile keyboard -c ...  # force a specific profile (ignores active)
+Switching is built into the installed binary, so it works even after you delete
+the source tree:
 
-# Switch the running service's profile (validates, updates active, reloads):
-./install/install.sh profile keyboard
-./install/install.sh profile              # no name = list installed profiles
+```bash
+sudo vader5d --switch-profile keyboard   # validate, set active, live-reload the service
+sudo vader5d --switch-profile elite
+vader5d --list-profiles                  # list installed profiles
+vader5d --profile keyboard -c ...        # force one for a single run (ignores active)
 ```
+
+`--switch-profile` writes `active`, then sends `SIGHUP` to any running `vader5d`
+so the change applies immediately (needs `sudo` to write `/etc/vader5`). It targets
+`/etc/vader5` by default; pass `-c <path>` to target a different config dir. The
+`install.sh profile <name>` command is just a thin wrapper around it.
 
 Switching between profiles that differ in `emulate_elite` triggers an automatic
 reconnect (new virtual devices); same-mode switches apply with no input drop.

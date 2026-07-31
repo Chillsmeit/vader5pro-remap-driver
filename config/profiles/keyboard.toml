@@ -6,7 +6,7 @@
 #  the extra buttons into ordinary key presses.
 #
 #  Switch profiles at runtime (validates, then live-reloads the service):
-#    ./install/install.sh profile elite      # Xbox Elite mode (needs Steam Input)
+#    ./install/install.sh profile elite       # Xbox Elite mode (needs Steam Input)
 #    ./install/install.sh profile keyboard    # this profile
 #    ./install/install.sh profile             # list installed profiles
 # ===============================================================

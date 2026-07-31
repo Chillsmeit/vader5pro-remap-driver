@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <poll.h>
+#include <unistd.h>
 
 namespace {
 std::atomic<bool> g_running{true};
@@ -38,6 +39,8 @@ struct Args {
     std::string config_path;
     std::string device_name;
     std::string profile;
+    std::string switch_profile;
+    bool config_explicit = false;
     bool check_config = false;
     bool list_keys = false;
     bool list_buttons = false;
@@ -52,6 +55,7 @@ auto parse_args(int argc, char** argv) -> Args {
         if ((std::strcmp(args[i], "-c") == 0 || std::strcmp(args[i], "--config") == 0) &&
             i + 1 < args.size()) {
             out.config_path = args[++i];
+            out.config_explicit = true;
         } else if ((std::strcmp(args[i], "-d") == 0 || std::strcmp(args[i], "--device") == 0) &&
                    i + 1 < args.size()) {
             out.device_name = args[++i];
@@ -65,9 +69,18 @@ auto parse_args(int argc, char** argv) -> Args {
             out.list_profiles = true;
         } else if (std::strcmp(args[i], "--profile") == 0 && i + 1 < args.size()) {
             out.profile = args[++i];
+        } else if (std::strcmp(args[i], "--switch-profile") == 0 && i + 1 < args.size()) {
+            out.switch_profile = args[++i];
         }
     }
     return out;
+}
+
+auto profile_dir(const Args& args) -> std::string {
+    if (args.config_explicit) {
+        return std::filesystem::path(args.config_path).parent_path().string();
+    }
+    return "/etc/vader5";
 }
 
 auto resolve_config_path(const std::string& base, const std::string& profile) -> std::string {
@@ -94,9 +107,9 @@ auto resolve_config_path(const std::string& base, const std::string& profile) ->
     return base;
 }
 
-void print_profiles(const std::string& base) {
+void print_profiles(const std::string& dir) {
     namespace fs = std::filesystem;
-    const fs::path profiles = fs::path(base).parent_path() / "profiles";
+    const fs::path profiles = fs::path(dir) / "profiles";
     std::error_code ec;
     std::vector<std::string> names;
     for (const auto& entry : fs::directory_iterator(profiles, ec)) {
@@ -108,6 +121,57 @@ void print_profiles(const std::string& base) {
     for (const auto& name : names) {
         std::cout << name << "\n";
     }
+}
+
+void reload_running_daemons() {
+    namespace fs = std::filesystem;
+    const int self = getpid();
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator("/proc", ec)) {
+        const std::string fname = entry.path().filename().string();
+        int pid = 0;
+        bool numeric = !fname.empty();
+        for (const char digit : fname) {
+            if (digit < '0' || digit > '9') {
+                numeric = false;
+                break;
+            }
+            pid = (pid * 10) + (digit - '0');
+        }
+        if (!numeric || pid == self) {
+            continue;
+        }
+        std::ifstream comm(entry.path() / "comm");
+        std::string name;
+        if (comm && std::getline(comm, name) && name == "vader5d") {
+            (void)::kill(pid, SIGHUP);
+        }
+    }
+}
+
+auto run_switch_profile(const std::string& dir, const std::string& name) -> int {
+    namespace fs = std::filesystem;
+    const fs::path profile = fs::path(dir) / "profiles" / (name + ".toml");
+    std::error_code ec;
+    if (!fs::exists(profile, ec)) {
+        std::cerr << "vader5d: no profile at " << profile.string() << "\n";
+        return 1;
+    }
+    if (!vader5::Config::load(profile.string())) {
+        std::cerr << "vader5d: profile '" << name << "' is invalid, not switching\n";
+        return 1;
+    }
+    const fs::path active = fs::path(dir) / "active";
+    std::ofstream out(active);
+    if (!out) {
+        std::cerr << "vader5d: cannot write " << active.string() << " (run with sudo?)\n";
+        return 1;
+    }
+    out << name << "\n";
+    out.close();
+    reload_running_daemons();
+    std::cout << "vader5d: switched to profile '" << name << "'\n";
+    return 0;
 }
 
 auto run_check_config(const std::string& path) -> int {
@@ -171,8 +235,11 @@ auto main(int argc, char** argv) -> int {
         print_buttons();
         return 0;
     }
+    if (!args.switch_profile.empty()) {
+        return run_switch_profile(profile_dir(args), args.switch_profile);
+    }
     if (args.list_profiles) {
-        print_profiles(args.config_path);
+        print_profiles(profile_dir(args));
         return 0;
     }
 
