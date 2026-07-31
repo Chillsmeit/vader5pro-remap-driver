@@ -212,7 +212,8 @@ void Gamepad::SuppressState::apply(GamepadState& s) const {
     if (right_trigger) { s.right_trigger = 0; }
 }
 
-auto Gamepad::open(const Config& cfg, const std::string& device_name) -> Result<Gamepad> {
+auto Gamepad::open(const Config& cfg, const std::string& device_name,
+                   const std::string& config_dir) -> Result<Gamepad> {
     auto hid = Hidraw::open(VENDOR_ID, PRODUCT_ID, CONFIG_INTERFACE, device_name);
     if (!hid) {
         return std::unexpected(hid.error());
@@ -242,11 +243,12 @@ auto Gamepad::open(const Config& cfg, const std::string& device_name) -> Result<
     if (!redundant) {
         std::cerr << "vader5d: warning: failed to suppress redundant input device: "
                   << redundant.error().message() << "\n";
-        return Gamepad(std::move(*hid), std::move(*uinput), std::move(input), UniqueFd(-1), cfg);
+        return Gamepad(std::move(*hid), std::move(*uinput), std::move(input), UniqueFd(-1), cfg,
+                       config_dir);
     }
 
-    return Gamepad(std::move(*hid), std::move(*uinput), std::move(input), std::move(*redundant),
-                   cfg);
+    return Gamepad(std::move(*hid), std::move(*uinput), std::move(input), std::move(*redundant), cfg,
+                   config_dir);
 }
 
 auto Gamepad::is_button_pressed(const GamepadState& state, std::string_view name) -> bool {
@@ -463,8 +465,8 @@ void Gamepad::process_gyro(const GamepadState& state) {
         return;
     }
 
-    auto gz = static_cast<float>(-state.gyro_z);
-    auto gx = static_cast<float>(-state.gyro_x);
+    auto gz = static_cast<float>(-(state.gyro_z - gyro_bias_z_));
+    auto gx = static_cast<float>(-(state.gyro_x - gyro_bias_x_));
     const auto dz = static_cast<float>(gcfg.deadzone);
     if (std::abs(gz) < dz) {
         gz = 0;
@@ -769,6 +771,7 @@ auto Gamepad::poll() -> Result<void> {
     }
 
     if (auto state = ext_report::parse({buf.data(), *bytes})) {
+        sample_calibration(*state);
         suppressed_buttons_ = 0;
         suppressed_ext_ = 0;
         injected_buttons_ = 0;
@@ -851,6 +854,56 @@ void Gamepad::poll_ff() {
         send_rumble(static_cast<uint8_t>(rumble->strong >> 8),
                     static_cast<uint8_t>(rumble->weak >> 8));
     }
+}
+
+void Gamepad::load_gyro_calibration() {
+    if (config_dir_.empty()) {
+        return;
+    }
+    std::ifstream in(std::filesystem::path(config_dir_) / "gyro-cal");
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    if (in >> x >> y >> z) {
+        gyro_bias_x_ = static_cast<int16_t>(x);
+        gyro_bias_y_ = static_cast<int16_t>(y);
+        gyro_bias_z_ = static_cast<int16_t>(z);
+        DBG("Loaded gyro calibration " << x << " " << y << " " << z);
+    }
+}
+
+void Gamepad::start_gyro_calibration() {
+    calibrating_ = true;
+    cal_count_ = 0;
+    cal_sum_x_ = 0;
+    cal_sum_y_ = 0;
+    cal_sum_z_ = 0;
+    std::cerr << "vader5d: calibrating gyro, keep the controller still...\n";
+}
+
+void Gamepad::sample_calibration(const GamepadState& state) {
+    if (!calibrating_) {
+        return;
+    }
+    constexpr int GYRO_CAL_SAMPLES = 250;
+    cal_sum_x_ += state.gyro_x;
+    cal_sum_y_ += state.gyro_y;
+    cal_sum_z_ += state.gyro_z;
+    if (++cal_count_ < GYRO_CAL_SAMPLES) {
+        return;
+    }
+    calibrating_ = false;
+    gyro_bias_x_ = static_cast<int16_t>(cal_sum_x_ / cal_count_);
+    gyro_bias_y_ = static_cast<int16_t>(cal_sum_y_ / cal_count_);
+    gyro_bias_z_ = static_cast<int16_t>(cal_sum_z_ / cal_count_);
+    if (!config_dir_.empty()) {
+        std::ofstream out(std::filesystem::path(config_dir_) / "gyro-cal");
+        if (out) {
+            out << gyro_bias_x_ << " " << gyro_bias_y_ << " " << gyro_bias_z_ << "\n";
+        }
+    }
+    std::cerr << "vader5d: gyro calibrated (bias " << gyro_bias_x_ << " " << gyro_bias_y_ << " "
+              << gyro_bias_z_ << ")\n";
 }
 
 auto Gamepad::reload(const Config& new_cfg) -> bool {

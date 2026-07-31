@@ -24,10 +24,13 @@
 namespace {
 std::atomic<bool> g_running{true};
 std::atomic<bool> g_reload{false};
+std::atomic<bool> g_calibrate{false};
 
 void handle_signal(int signum) {
     if (signum == SIGHUP) {
         g_reload.store(true, std::memory_order_relaxed);
+    } else if (signum == SIGUSR1) {
+        g_calibrate.store(true, std::memory_order_relaxed);
     } else {
         g_running.store(false, std::memory_order_relaxed);
     }
@@ -45,6 +48,7 @@ struct Args {
     bool list_keys = false;
     bool list_buttons = false;
     bool list_profiles = false;
+    bool calibrate_gyro = false;
 };
 
 auto parse_args(int argc, char** argv) -> Args {
@@ -71,6 +75,8 @@ auto parse_args(int argc, char** argv) -> Args {
             out.profile = args[++i];
         } else if (std::strcmp(args[i], "--switch-profile") == 0 && i + 1 < args.size()) {
             out.switch_profile = args[++i];
+        } else if (std::strcmp(args[i], "--calibrate-gyro") == 0) {
+            out.calibrate_gyro = true;
         }
     }
     return out;
@@ -123,7 +129,7 @@ void print_profiles(const std::string& dir) {
     }
 }
 
-void reload_running_daemons() {
+void signal_daemons(int sig) {
     namespace fs = std::filesystem;
     const int self = getpid();
     std::error_code ec;
@@ -144,7 +150,7 @@ void reload_running_daemons() {
         std::ifstream comm(entry.path() / "comm");
         std::string name;
         if (comm && std::getline(comm, name) && name == "vader5d") {
-            (void)::kill(pid, SIGHUP);
+            (void)::kill(pid, sig);
         }
     }
 }
@@ -169,8 +175,14 @@ auto run_switch_profile(const std::string& dir, const std::string& name) -> int 
     }
     out << name << "\n";
     out.close();
-    reload_running_daemons();
+    signal_daemons(SIGHUP);
     std::cout << "vader5d: switched to profile '" << name << "'\n";
+    return 0;
+}
+
+auto run_calibrate_gyro() -> int {
+    signal_daemons(SIGUSR1);
+    std::cout << "vader5d: keep the controller flat and still for ~2 seconds while it calibrates\n";
     return 0;
 }
 
@@ -220,10 +232,8 @@ auto do_reload(vader5::Gamepad& gamepad, const std::string& base, const std::str
     std::cout << "vader5d: reloaded " << path << "\n";
     return false;
 }
-}
 
-auto main(int argc, char** argv) -> int {
-    const auto args = parse_args(argc, argv);
+auto handle_cli_action(const Args& args) -> std::optional<int> {
     if (args.check_config) {
         return run_check_config(resolve_config_path(args.config_path, args.profile));
     }
@@ -242,8 +252,21 @@ auto main(int argc, char** argv) -> int {
         print_profiles(profile_dir(args));
         return 0;
     }
+    if (args.calibrate_gyro) {
+        return run_calibrate_gyro();
+    }
+    return std::nullopt;
+}
+}
+
+auto main(int argc, char** argv) -> int {
+    const auto args = parse_args(argc, argv);
+    if (auto rc = handle_cli_action(args)) {
+        return *rc;
+    }
 
     vader5::Config cfg;
+    const std::string cfg_dir = profile_dir(args);
     const std::string config_path = resolve_config_path(args.config_path, args.profile);
     if (auto loaded = vader5::Config::load(config_path); loaded) {
         cfg = *loaded;
@@ -263,6 +286,7 @@ auto main(int argc, char** argv) -> int {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
     sigaction(SIGHUP, &sa, nullptr);
+    sigaction(SIGUSR1, &sa, nullptr);
 
     sigset_t empty_mask;
     sigemptyset(&empty_mask);
@@ -272,9 +296,10 @@ auto main(int argc, char** argv) -> int {
     sigaddset(&block_mask, SIGTERM);
     sigaddset(&block_mask, SIGINT);
     sigaddset(&block_mask, SIGHUP);
+    sigaddset(&block_mask, SIGUSR1);
 
     while (g_running.load(std::memory_order_relaxed)) {
-        auto gamepad = vader5::Gamepad::open(cfg, args.device_name);
+        auto gamepad = vader5::Gamepad::open(cfg, args.device_name, cfg_dir);
         if (!gamepad) {
             std::this_thread::sleep_for(RETRY_INTERVAL);
             continue;
@@ -293,6 +318,9 @@ auto main(int argc, char** argv) -> int {
             if (g_reload.exchange(false, std::memory_order_relaxed) &&
                 do_reload(*gamepad, args.config_path, args.profile, cfg)) {
                 break;
+            }
+            if (g_calibrate.exchange(false, std::memory_order_relaxed)) {
+                gamepad->start_gyro_calibration();
             }
             const int ret = ppoll(pfds.data(), pfds.size(), nullptr, &empty_mask);
             if (ret < 0) {

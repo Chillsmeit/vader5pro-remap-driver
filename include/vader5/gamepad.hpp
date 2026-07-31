@@ -44,7 +44,8 @@ class UniqueFd {
 
 class Gamepad {
   public:
-    static auto open(const Config& cfg, const std::string& device_name) -> Result<Gamepad>;
+    static auto open(const Config& cfg, const std::string& device_name,
+                     const std::string& config_dir = "") -> Result<Gamepad>;
     ~Gamepad();
 
     Gamepad(Gamepad&&) = default;
@@ -55,6 +56,7 @@ class Gamepad {
     auto poll() -> Result<void>;
     void poll_ff();
     auto reload(const Config& new_cfg) -> bool;
+    void start_gyro_calibration();
     auto send_rumble(uint8_t left, uint8_t right) -> bool;
     [[nodiscard]] auto fd() const noexcept -> int {
         return hidraw_.fd();
@@ -65,9 +67,15 @@ class Gamepad {
 
   private:
     Gamepad(Hidraw&& hid, Uinput&& uinput, std::optional<InputDevice>&& input, UniqueFd&& redundant,
-            Config cfg)
+            Config cfg, std::string config_dir)
         : hidraw_(std::move(hid)), uinput_(std::move(uinput)), input_(std::move(input)),
-          redundant_(std::move(redundant)), config_(std::move(cfg)) {}
+          redundant_(std::move(redundant)), config_(std::move(cfg)),
+          config_dir_(std::move(config_dir)) {
+        load_gyro_calibration();
+    }
+
+    void load_gyro_calibration();
+    void sample_calibration(const GamepadState& state);
 
     void process_gyro(const GamepadState& state);
     void process_mouse_stick(const GamepadState& state);
@@ -91,6 +99,15 @@ class Gamepad {
     std::optional<InputDevice> input_;
     UniqueFd redundant_;
     Config config_;
+    std::string config_dir_;
+    int16_t gyro_bias_x_{0};
+    int16_t gyro_bias_y_{0};
+    int16_t gyro_bias_z_{0};
+    bool calibrating_{false};
+    int cal_count_{0};
+    int64_t cal_sum_x_{0};
+    int64_t cal_sum_y_{0};
+    int64_t cal_sum_z_{0};
     GamepadState prev_state_{};
     std::unordered_map<std::string, TapHoldState> tap_hold_states_;
     std::unordered_set<std::string> toggled_layers_;

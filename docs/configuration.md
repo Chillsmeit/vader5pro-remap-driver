@@ -67,6 +67,20 @@ so the change applies immediately (needs `sudo` to write `/etc/vader5`). It targ
 Switching between profiles that differ in `emulate_elite` triggers an automatic
 reconnect (new virtual devices); same-mode switches apply with no input drop.
 
+## Gyro calibration
+
+Gyros have a small resting bias that shows up as slow cursor drift in gyro-mouse
+mode. To measure and cancel it, lay the controller flat and still, then run:
+
+```bash
+sudo vader5d --calibrate-gyro
+```
+
+That signals the running daemon to average ~250 samples and save the bias to
+`/etc/vader5/gyro-cal`. The daemon subtracts it from then on and reloads it on every
+start. Re-run it whenever the drift returns (e.g. after a big temperature change);
+delete `/etc/vader5/gyro-cal` to clear it.
+
 ## Basic Settings
 
 ```toml
