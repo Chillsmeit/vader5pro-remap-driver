@@ -14,7 +14,22 @@ The driver searches for config in this order:
 # Specify custom path
 sudo ./build/vader5d -c /path/to/config.toml
 sudo ./build/vader5d --config /path/to/config.toml
+
+# Validate a config without starting the driver (prints warnings, exit 1 on error)
+./build/vader5d --check-config -c /path/to/config.toml
+
+# Print every valid remap target / physical button name
+./build/vader5d --list-keys
+./build/vader5d --list-buttons
 ```
+
+The systemd service loads `/etc/vader5/config.toml`. After editing your repo copy,
+push it to the system path and restart with `./install/install.sh update-config`.
+
+To apply config changes without dropping the controller, send `SIGHUP` instead of
+restarting: `sudo systemctl reload 'vader5d@*'` (or `kill -HUP <pid>`). The driver
+re-reads the config in place; if the change needs new virtual devices (toggling
+`emulate_elite`, or adding/removing the mouse device), it reconnects automatically.
 
 ## Basic Settings
 
@@ -129,6 +144,11 @@ When `emulate_elite = false`:
 - `disabled` completely blocks the button
 - Layer remaps override base remaps for the same button
 
+> Note: in `emulate_elite = true` mode the M2 and M3 paddles are mapped to Xbox
+> Elite paddle slots in swapped order, so they line up with the controller's
+> physical paddle layout. This affects only the default Elite paddle output, not
+> `[remap]` targets you set yourself.
+
 ## Full Example
 
 ```toml
@@ -171,7 +191,28 @@ gyro = { mode = "mouse", sensitivity = 1.5 }
 
 ## Key Codes Reference
 
-Common key codes (full list in `/usr/include/linux/input-event-codes.h`):
+Only the names listed below are recognized. Anything not in this table (numpad,
+punctuation, media keys, ...) is rejected and the remap is skipped with a warning
+on startup. For those, use the raw form `code:<number>`, where the number is the
+Linux input code from `/usr/include/linux/input-event-codes.h`. For example the
+numpad `9` key has no built-in name, so map it as `code:73`.
+
+```toml
+[remap]
+M1 = "code:73"   # KEY_KP9
+```
+
+### Key combos
+
+Join keys with `+` to send a combo. Keys are pressed in order and released in
+reverse, so modifiers work as expected. Combo parts must all be key names (not
+mouse aliases), and combos need `emulate_elite = false` like other key remaps.
+
+```toml
+[remap]
+M1 = "KEY_LEFTCTRL+KEY_C"
+M2 = "KEY_LEFTALT+KEY_F4"
+```
 
 | Key | Code |
 |-----|------|
