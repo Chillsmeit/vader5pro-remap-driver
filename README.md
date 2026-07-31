@@ -4,24 +4,60 @@ Linux userspace driver for the Flydigi Vader 5 Pro gamepad (2.4G USB dongle).
 
 ## Features
 
-- Xbox Elite emulation with Steam paddle support (M1-M4)
+- Two ready-made profiles you can switch live: **keyboard** (standalone remaps, no Steam Input needed) and **elite** (Xbox Elite emulation with Steam paddle support, M1-M4)
 - Gyro support: mouse mode or map to right stick (for games without gyro)
 - Layer system with tap-hold (like QMK keyboard firmware)
-- Button remap to keyboard/mouse
+- Button remap to keyboard/mouse — including key combos (`KEY_LEFTCTRL+KEY_C`) and any raw evdev code (`code:N`)
+- Live config reload (no restart), config validation, and a hardened systemd service
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/BANANASJIM/flydigi-vader5.git
-cd flydigi-vader5
-./install/install.sh          # build + udev rules + config
-sudo ./build/vader5d
+git clone https://github.com/Chillsmeit/vader5pro-remap-driver.git
+cd vader5pro-remap-driver
+./install/install.sh install   # build + udev + systemd service (auto-starts via udev)
+```
 
-# Custom config
-sudo ./build/vader5d -c /path/to/config.toml
+The service starts on the **keyboard** profile by default. Switch modes at any time
+(this works even after you delete the source tree):
 
-# Or full install with systemd service (auto-starts via udev)
-./install/install.sh install
+```bash
+sudo vader5d --switch-profile keyboard   # standalone, no Steam Input
+sudo vader5d --switch-profile elite      # Xbox Elite paddles (uses Steam Input)
+vader5d --list-profiles
+```
+
+To run it by hand instead of as a service, point `-c` at a profile:
+
+```bash
+sudo ./build/vader5d -c /etc/vader5/profiles/keyboard.toml
+```
+
+## Profiles
+
+Profiles live in `/etc/vader5/profiles/*.toml` (or `~/.config/vader5/profiles/` for a
+manual run). The active one is recorded in `.../active`; switching validates the
+profile, updates `active`, and reloads the running daemon live — no restart.
+
+| Profile | `emulate_elite` | Needs Steam Input? | What it does |
+|---------|-----------------|--------------------|--------------|
+| `keyboard` | `false` | No | Extra buttons send keys/mouse; works standalone |
+| `elite`    | `true`  | Yes (paddles) | Emulates an Xbox Elite 2; M1-M4 = Steam paddles |
+
+Edit a profile's `.toml`, then apply it without dropping the controller:
+
+```bash
+sudo systemctl reload 'vader5d@*'      # or: sudo kill -HUP $(pidof vader5d)
+```
+
+## Command reference
+
+```bash
+vader5d --switch-profile <name>    # set active profile + live reload (needs sudo)
+vader5d --list-profiles            # installed profiles
+vader5d --check-config -c <file>   # validate a config/profile (exit 1 on error)
+vader5d --list-keys                # every remap target (keys, mouse_*, code:N, combos)
+vader5d --list-buttons             # every physical button name
 ```
 
 ## How It Works
@@ -75,7 +111,8 @@ Only one layer active at a time (first activated wins)
 
 ## Configuration
 
-Config: `config/config.toml`
+Profiles live in `config/profiles/*.toml` (installed to `/etc/vader5/profiles/`).
+Below is the `elite` profile as an example:
 
 ```toml
 emulate_elite = true        # true: Xbox Elite (Steam paddles), false: standard gamepad
@@ -108,6 +145,11 @@ trigger = "M1"
 activation = "toggle"
 gyro = { mode = "mouse", sensitivity = 1.5 }
 ```
+
+Remap values can be keyboard keys (`KEY_A`), mouse buttons (`mouse_left`), other
+gamepad buttons, key combos (`KEY_LEFTCTRL+KEY_C`), raw evdev codes (`code:73`), or
+`disabled`. Run `vader5d --list-keys` for the full list; unknown values are skipped
+with a warning at startup.
 
 See [docs/configuration.md](docs/configuration.md) for full options.
 
