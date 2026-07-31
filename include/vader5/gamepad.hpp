@@ -54,6 +54,7 @@ class Gamepad {
 
     auto poll() -> Result<void>;
     void poll_ff();
+    auto reload(const Config& new_cfg) -> bool;
     auto send_rumble(uint8_t left, uint8_t right) -> bool;
     [[nodiscard]] auto fd() const noexcept -> int {
         return hidraw_.fd();
@@ -76,6 +77,7 @@ class Gamepad {
     void process_base_remaps(const GamepadState& state, const GamepadState& prev);
     void update_tap_hold(const GamepadState& state, const GamepadState& prev);
     void emit_tap(const RemapTarget& tap);
+    void emit_key_target(const RemapTarget& target, bool pressed);
     auto get_active_layer() -> const LayerConfig*;
     static auto is_button_pressed(const GamepadState& state, std::string_view name) -> bool;
 
@@ -124,4 +126,4 @@ class Gamepad {
     std::chrono::steady_clock::time_point last_rumble_time_;
 };
 
-} // namespace vader5
+}

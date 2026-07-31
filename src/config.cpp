@@ -17,26 +17,26 @@ constexpr std::array<std::string_view, 8> EXT_BUTTON_NAMES = {"C",  "Z",  "M1", 
 
 auto parse_gyro_mode(std::string_view mode) -> GyroConfig::Mode {
     if (mode == "mouse") {
-        return GyroConfig::Mouse;
+        return GyroConfig::MOUSE;
     }
     if (mode == "joystick") {
-        return GyroConfig::Joystick;
+        return GyroConfig::JOYSTICK;
     }
-    return GyroConfig::Off;
+    return GyroConfig::OFF;
 }
 
 auto parse_stick_mode(std::string_view mode) -> StickConfig::Mode {
     if (mode == "mouse") {
-        return StickConfig::Mouse;
+        return StickConfig::MOUSE;
     }
     if (mode == "scroll") {
-        return StickConfig::Scroll;
+        return StickConfig::SCROLL;
     }
-    return StickConfig::Gamepad;
+    return StickConfig::GAMEPAD;
 }
 
 auto parse_dpad_mode(std::string_view mode) -> DpadConfig::Mode {
-    return mode == "arrows" ? DpadConfig::Arrows : DpadConfig::Gamepad;
+    return mode == "arrows" ? DpadConfig::ARROWS : DpadConfig::GAMEPAD;
 }
 
 void parse_gyro(const toml::table& tbl, GyroConfig& cfg) {
@@ -107,7 +107,7 @@ auto parse_layer(const std::string& name, const toml::table& tbl) -> LayerConfig
         layer.hold_timeout = static_cast<int>(val->get());
     }
     if (const auto* val = tbl["activation"].as_string()) {
-        layer.activation = (val->get() == "toggle") ? LayerConfig::Toggle : LayerConfig::Hold;
+        layer.activation = (val->get() == "toggle") ? LayerConfig::TOGGLE : LayerConfig::HOLD;
     }
     if (const auto* sub = tbl["gyro"].as_table()) {
         GyroConfig gc;
@@ -134,6 +134,9 @@ auto parse_layer(const std::string& name, const toml::table& tbl) -> LayerConfig
             if (const auto* str = node.as_string()) {
                 if (auto target = parse_remap_target(str->get())) {
                     layer.remap[std::string(key)] = *target;
+                } else {
+                    std::cerr << "vader5d: [layer." << name << "] remap " << std::string(key)
+                              << " = \"" << str->get() << "\": unknown target, ignored\n";
                 }
             }
         }
@@ -149,38 +152,77 @@ void detect_conflicts(const Config& cfg) {
         }
     }
 }
-} // namespace
+
+auto parse_key_combo(std::string_view value) -> std::optional<std::vector<int>> {
+    std::vector<int> codes;
+    size_t start = 0;
+    while (start <= value.size()) {
+        const size_t plus = value.find('+', start);
+        const size_t len = (plus == std::string_view::npos) ? std::string_view::npos : plus - start;
+        std::string_view part = value.substr(start, len);
+        const size_t begin = part.find_first_not_of(" \t");
+        const size_t end = part.find_last_not_of(" \t");
+        if (begin == std::string_view::npos) {
+            return std::nullopt;
+        }
+        part = part.substr(begin, end - begin + 1);
+        auto code = keycode_from_name(part);
+        if (!code) {
+            return std::nullopt;
+        }
+        codes.push_back(*code);
+        if (plus == std::string_view::npos) {
+            break;
+        }
+        start = plus + 1;
+    }
+    if (codes.size() < 2) {
+        return std::nullopt;
+    }
+    return codes;
+}
+}
 
 auto parse_remap_target(std::string_view value) -> std::optional<RemapTarget> {
+    if (value.contains('+')) {
+        if (auto codes = parse_key_combo(value)) {
+            RemapTarget target;
+            target.type = RemapTarget::KEY;
+            target.code = codes->front();
+            target.combo = std::move(*codes);
+            return target;
+        }
+        return std::nullopt;
+    }
     if (value == "disabled") {
-        return RemapTarget{RemapTarget::Disabled, 0};
+        return RemapTarget{RemapTarget::DISABLED, 0};
     }
     if (value == "mouse_left") {
-        return RemapTarget{RemapTarget::MouseButton, BTN_LEFT};
+        return RemapTarget{RemapTarget::MOUSE_BUTTON, BTN_LEFT};
     }
     if (value == "mouse_right") {
-        return RemapTarget{RemapTarget::MouseButton, BTN_RIGHT};
+        return RemapTarget{RemapTarget::MOUSE_BUTTON, BTN_RIGHT};
     }
     if (value == "mouse_middle") {
-        return RemapTarget{RemapTarget::MouseButton, BTN_MIDDLE};
+        return RemapTarget{RemapTarget::MOUSE_BUTTON, BTN_MIDDLE};
     }
     if (value == "mouse_side") {
-        return RemapTarget{RemapTarget::MouseButton, BTN_SIDE};
+        return RemapTarget{RemapTarget::MOUSE_BUTTON, BTN_SIDE};
     }
     if (value == "mouse_extra") {
-        return RemapTarget{RemapTarget::MouseButton, BTN_EXTRA};
+        return RemapTarget{RemapTarget::MOUSE_BUTTON, BTN_EXTRA};
     }
     if (value == "mouse_forward") {
-        return RemapTarget{RemapTarget::MouseButton, BTN_FORWARD};
+        return RemapTarget{RemapTarget::MOUSE_BUTTON, BTN_FORWARD};
     }
     if (value == "mouse_back") {
-        return RemapTarget{RemapTarget::MouseButton, BTN_BACK};
+        return RemapTarget{RemapTarget::MOUSE_BUTTON, BTN_BACK};
     }
     if (auto [btn, ext] = button_to_masks(value); btn != 0 || ext != 0) {
-        return RemapTarget{RemapTarget::GamepadButton, 0, btn, ext};
+        return RemapTarget{RemapTarget::GAMEPAD_BUTTON, 0, btn, ext};
     }
     if (auto code = keycode_from_name(value)) {
-        return RemapTarget{RemapTarget::Key, *code};
+        return RemapTarget{RemapTarget::KEY, *code};
     }
     return std::nullopt;
 }
@@ -210,7 +252,9 @@ auto Config::load(const std::string& path) -> Result<Config> {
     toml::table tbl;
     try {
         tbl = toml::parse_file(path);
-    } catch (const toml::parse_error&) {
+    } catch (const toml::parse_error& err) {
+        std::cerr << "vader5d: config error in " << path << ": " << err.description() << " (line "
+                  << err.source().begin.line << ")\n";
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));
     }
 
@@ -229,6 +273,9 @@ auto Config::load(const std::string& path) -> Result<Config> {
                 }
                 if (auto target = parse_remap_target(str->get())) {
                     cfg.button_remaps[std::string(key)] = *target;
+                } else {
+                    std::cerr << "vader5d: [remap] " << std::string(key) << " = \"" << str->get()
+                              << "\": unknown target, ignored\n";
                 }
             }
         }
@@ -282,4 +329,4 @@ auto Config::load(const std::string& path) -> Result<Config> {
     return cfg;
 }
 
-} // namespace vader5
+}

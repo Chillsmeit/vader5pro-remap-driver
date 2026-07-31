@@ -27,7 +27,13 @@ Checks: >
     -misc-const-correctness,
     -bugprone-unchecked-optional-access,
     -readability-convert-member-functions-to-static,
-    -cppcoreguidelines-pro-type-union-access
+    -cppcoreguidelines-pro-type-union-access,
+    -cppcoreguidelines-use-enum-class,
+    -performance-enum-size,
+    -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+    -portability-avoid-pragma-once,
+    -llvm-namespace-comment,
+    -google-readability-namespace-comments
 
 WarningsAsErrors: '*'
 

@@ -81,3 +81,8 @@ add_executable(test-uinput-elite
 set_target_properties(test-uinput-elite PROPERTIES CXX_CLANG_TIDY "")
 target_include_directories(test-uinput-elite PRIVATE include)
 target_link_libraries(test-uinput-elite PRIVATE tomlplusplus::tomlplusplus)
+
+enable_testing()
+add_test(NAME test-remap COMMAND test-remap WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_test(NAME test-uinput-elite COMMAND test-uinput-elite WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_test(NAME test-debug-iface COMMAND test-debug-iface WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

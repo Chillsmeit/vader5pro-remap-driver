@@ -16,37 +16,37 @@ using namespace vader5;
 
 void test_parse_gamepad_buttons() {
     auto l3 = parse_remap_target("L3");
-    CHECK(l3 && l3->type == RemapTarget::GamepadButton);
+    CHECK(l3 && l3->type == RemapTarget::GAMEPAD_BUTTON);
     CHECK(l3->btn_mask == PAD_L3 && l3->ext_mask == 0);
 
     auto r3 = parse_remap_target("R3");
-    CHECK(r3 && r3->type == RemapTarget::GamepadButton && r3->btn_mask == PAD_R3);
+    CHECK(r3 && r3->type == RemapTarget::GAMEPAD_BUTTON && r3->btn_mask == PAD_R3);
 
     auto a = parse_remap_target("A");
-    CHECK(a && a->type == RemapTarget::GamepadButton && a->btn_mask == PAD_A);
+    CHECK(a && a->type == RemapTarget::GAMEPAD_BUTTON && a->btn_mask == PAD_A);
 
     auto lm = parse_remap_target("LM");
-    CHECK(lm && lm->type == RemapTarget::GamepadButton);
+    CHECK(lm && lm->type == RemapTarget::GAMEPAD_BUTTON);
     CHECK(lm->ext_mask == EXT_LM && lm->btn_mask == 0);
 
     auto rm = parse_remap_target("RM");
-    CHECK(rm && rm->type == RemapTarget::GamepadButton && rm->ext_mask == EXT_RM);
+    CHECK(rm && rm->type == RemapTarget::GAMEPAD_BUTTON && rm->ext_mask == EXT_RM);
 
     auto m1 = parse_remap_target("M1");
-    CHECK(m1 && m1->type == RemapTarget::GamepadButton && m1->ext_mask == EXT_M1);
+    CHECK(m1 && m1->type == RemapTarget::GAMEPAD_BUTTON && m1->ext_mask == EXT_M1);
 
     std::cout << "  parse gamepad buttons: OK\n";
 }
 
 void test_parse_existing_types() {
     auto key = parse_remap_target("KEY_A");
-    CHECK(key && key->type == RemapTarget::Key);
+    CHECK(key && key->type == RemapTarget::KEY);
 
     auto mouse = parse_remap_target("mouse_left");
-    CHECK(mouse && mouse->type == RemapTarget::MouseButton);
+    CHECK(mouse && mouse->type == RemapTarget::MOUSE_BUTTON);
 
     auto disabled = parse_remap_target("disabled");
-    CHECK(disabled && disabled->type == RemapTarget::Disabled);
+    CHECK(disabled && disabled->type == RemapTarget::DISABLED);
 
     CHECK(!parse_remap_target("invalid_junk"));
 
@@ -120,11 +120,11 @@ void test_config_load() {
     CHECK(cfg.has_value());
 
     CHECK(cfg->button_remaps.contains("LM"));
-    CHECK(cfg->button_remaps.at("LM").type == RemapTarget::GamepadButton);
+    CHECK(cfg->button_remaps.at("LM").type == RemapTarget::GAMEPAD_BUTTON);
     CHECK(cfg->button_remaps.at("LM").btn_mask == PAD_L3);
 
     CHECK(cfg->button_remaps.contains("RM"));
-    CHECK(cfg->button_remaps.at("RM").type == RemapTarget::GamepadButton);
+    CHECK(cfg->button_remaps.at("RM").type == RemapTarget::GAMEPAD_BUTTON);
     CHECK(cfg->button_remaps.at("RM").btn_mask == PAD_R3);
 
     std::cout << "  config load (simple): OK\n";
@@ -134,25 +134,20 @@ void test_config_load_full() {
     auto cfg = Config::load("config/test-remap.toml");
     CHECK(cfg.has_value());
 
-    // Base remap: LM -> L3, RM -> R3
-    CHECK(cfg->button_remaps.at("LM").type == RemapTarget::GamepadButton);
+    CHECK(cfg->button_remaps.at("LM").type == RemapTarget::GAMEPAD_BUTTON);
     CHECK(cfg->button_remaps.at("LM").btn_mask == PAD_L3);
     CHECK(cfg->button_remaps.at("RM").btn_mask == PAD_R3);
 
-    // Keyboard remaps still work
-    CHECK(cfg->button_remaps.at("M1").type == RemapTarget::Key);
-    CHECK(cfg->button_remaps.at("A").type == RemapTarget::Key);
+    CHECK(cfg->button_remaps.at("M1").type == RemapTarget::KEY);
+    CHECK(cfg->button_remaps.at("A").type == RemapTarget::KEY);
 
-    // Mouse remaps still work
-    CHECK(cfg->button_remaps.at("M3").type == RemapTarget::MouseButton);
+    CHECK(cfg->button_remaps.at("M3").type == RemapTarget::MOUSE_BUTTON);
 
-    // Disabled still works
-    CHECK(cfg->button_remaps.at("C").type == RemapTarget::Disabled);
+    CHECK(cfg->button_remaps.at("C").type == RemapTarget::DISABLED);
 
-    // Layer with gamepad button remaps
     CHECK(cfg->layers.contains("gamepad"));
     const auto& gl = cfg->layers.at("gamepad");
-    CHECK(gl.remap.at("A").type == RemapTarget::GamepadButton);
+    CHECK(gl.remap.at("A").type == RemapTarget::GAMEPAD_BUTTON);
     CHECK(gl.remap.at("A").btn_mask == PAD_B);
     CHECK(gl.remap.at("B").btn_mask == PAD_A);
     CHECK(gl.remap.at("M3").ext_mask == 0);
@@ -162,9 +157,34 @@ void test_config_load_full() {
     std::cout << "  config load (full): OK\n";
 }
 
+void test_parse_unknown_and_numeric() {
+    CHECK(!parse_remap_target("KEY_KP9"));
+    CHECK(!parse_remap_target("not_a_key"));
+
+    auto raw = parse_remap_target("code:74");
+    CHECK(raw && raw->type == RemapTarget::KEY && raw->code == 74);
+
+    CHECK(!parse_remap_target("code:"));
+    CHECK(!parse_remap_target("code:99999"));
+
+    auto combo = parse_remap_target("KEY_LEFTCTRL+KEY_C");
+    CHECK(combo && combo->type == RemapTarget::KEY);
+    CHECK(combo->combo.size() == 2);
+    CHECK(combo->code == combo->combo.front());
+
+    auto spaced = parse_remap_target("KEY_A + KEY_B + KEY_C");
+    CHECK(spaced && spaced->combo.size() == 3);
+
+    CHECK(!parse_remap_target("KEY_A+bogus"));
+    CHECK(!parse_remap_target("KEY_A+"));
+
+    std::cout << "  parse unknown/numeric/combo: OK\n";
+}
+
 int main() {
     std::cout << "Running gamepad button remap tests...\n";
     test_parse_gamepad_buttons();
+    test_parse_unknown_and_numeric();
     test_parse_existing_types();
     test_injection_lm_to_l3();
     test_injection_button_swap();

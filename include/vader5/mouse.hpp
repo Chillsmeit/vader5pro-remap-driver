@@ -24,4 +24,4 @@ class Mouse {
     int fd_{-1};
 };
 
-} // namespace vader5
+}

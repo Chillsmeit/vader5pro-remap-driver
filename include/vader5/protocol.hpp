@@ -19,13 +19,14 @@ constexpr std::array<uint8_t, 16> DPAD_MAP = {
     DPAD_DOWN_RIGHT, DPAD_NONE, DPAD_LEFT,  DPAD_UP_LEFT,  DPAD_NONE, DPAD_NONE,
     DPAD_DOWN_LEFT,  DPAD_NONE, DPAD_NONE,  DPAD_NONE};
 
-inline auto read_s16(const uint8_t* data) -> int16_t {
+inline auto read_s16(std::span<const uint8_t> data) -> int16_t {
     return static_cast<int16_t>(static_cast<uint16_t>(data[0]) |
                                 (static_cast<uint16_t>(data[1]) << 8));
 }
 
 inline auto parse_dpad(uint8_t b11) -> uint8_t {
-    return DPAD_MAP[b11 & 0x0F];
+    constexpr uint8_t DPAD_NIBBLE = 0x0F;
+    return DPAD_MAP[b11 & DPAD_NIBBLE];
 }
 
 namespace ext_report {
@@ -40,13 +41,11 @@ constexpr size_t OFF_ACCEL = 23;
 constexpr size_t MIN_SIZE = 17;
 constexpr size_t FULL_SIZE = 29;
 
-// byte[11]
 constexpr uint8_t B11_A = 0x10;
 constexpr uint8_t B11_B = 0x20;
 constexpr uint8_t B11_SELECT = 0x40;
 constexpr uint8_t B11_X = 0x80;
 
-// byte[12]
 constexpr uint8_t B12_Y = 0x01;
 constexpr uint8_t B12_START = 0x02;
 constexpr uint8_t B12_LB = 0x04;
@@ -56,41 +55,53 @@ constexpr uint8_t B12_R3 = 0x80;
 
 inline auto parse_buttons(uint8_t b11, uint8_t b12) -> uint16_t {
     uint16_t btns = 0;
-    if ((b11 & B11_A) != 0)
+    if ((b11 & B11_A) != 0) {
         btns |= PAD_A;
-    if ((b11 & B11_B) != 0)
+    }
+    if ((b11 & B11_B) != 0) {
         btns |= PAD_B;
-    if ((b11 & B11_X) != 0)
+    }
+    if ((b11 & B11_X) != 0) {
         btns |= PAD_X;
-    if ((b12 & B12_Y) != 0)
+    }
+    if ((b12 & B12_Y) != 0) {
         btns |= PAD_Y;
-    if ((b12 & B12_LB) != 0)
+    }
+    if ((b12 & B12_LB) != 0) {
         btns |= PAD_LB;
-    if ((b12 & B12_RB) != 0)
+    }
+    if ((b12 & B12_RB) != 0) {
         btns |= PAD_RB;
-    if ((b11 & B11_SELECT) != 0)
+    }
+    if ((b11 & B11_SELECT) != 0) {
         btns |= PAD_SELECT;
-    if ((b12 & B12_START) != 0)
+    }
+    if ((b12 & B12_START) != 0) {
         btns |= PAD_START;
-    if ((b12 & B12_L3) != 0)
+    }
+    if ((b12 & B12_L3) != 0) {
         btns |= PAD_L3;
-    if ((b12 & B12_R3) != 0)
+    }
+    if ((b12 & B12_R3) != 0) {
         btns |= PAD_R3;
+    }
     return btns;
 }
 
 inline auto parse(std::span<const uint8_t> data) -> std::optional<GamepadState> {
-    if (data.size() < MIN_SIZE)
+    if (data.size() < MIN_SIZE) {
         return std::nullopt;
+    }
     if (data[0] != MAGIC_5A || data[1] != MAGIC_A5 || data[2] != MAGIC_EF) {
         return std::nullopt;
     }
 
+    constexpr int AXIS_MAX = 32767;
     GamepadState state{};
-    state.left_x = read_s16(&data[OFF_LX]);
-    state.left_y = static_cast<int16_t>(std::clamp(-static_cast<int>(read_s16(&data[OFF_LX + 2])), -32767, 32767));
-    state.right_x = read_s16(&data[OFF_LX + 4]);
-    state.right_y = static_cast<int16_t>(std::clamp(-static_cast<int>(read_s16(&data[OFF_LX + 6])), -32767, 32767));
+    state.left_x = read_s16(data.subspan(OFF_LX));
+    state.left_y = static_cast<int16_t>(std::clamp(-static_cast<int>(read_s16(data.subspan(OFF_LX + 2))), -AXIS_MAX, AXIS_MAX));
+    state.right_x = read_s16(data.subspan(OFF_LX + 4));
+    state.right_y = static_cast<int16_t>(std::clamp(-static_cast<int>(read_s16(data.subspan(OFF_LX + 6))), -AXIS_MAX, AXIS_MAX));
 
     const uint8_t b11 = data[OFF_BTNS];
     const uint8_t b12 = data[OFF_BTNS + 1];
@@ -102,16 +113,16 @@ inline auto parse(std::span<const uint8_t> data) -> std::optional<GamepadState> 
     state.ext_buttons2 = data[OFF_EXT2];
 
     if (data.size() >= FULL_SIZE) {
-        state.gyro_x = read_s16(&data[OFF_GYRO]);
-        state.gyro_y = read_s16(&data[OFF_GYRO + 2]);
-        state.gyro_z = read_s16(&data[OFF_GYRO + 4]);
-        state.accel_x = read_s16(&data[OFF_ACCEL]);
-        state.accel_y = read_s16(&data[OFF_ACCEL + 2]);
-        state.accel_z = read_s16(&data[OFF_ACCEL + 4]);
+        state.gyro_x = read_s16(data.subspan(OFF_GYRO));
+        state.gyro_y = read_s16(data.subspan(OFF_GYRO + 2));
+        state.gyro_z = read_s16(data.subspan(OFF_GYRO + 4));
+        state.accel_x = read_s16(data.subspan(OFF_ACCEL));
+        state.accel_y = read_s16(data.subspan(OFF_ACCEL + 2));
+        state.accel_z = read_s16(data.subspan(OFF_ACCEL + 4));
     }
 
     return state;
 }
-} // namespace ext_report
+}
 
-} // namespace vader5
+}

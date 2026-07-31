@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <ranges>
 #include <thread>
 
 namespace vader5 {
@@ -98,51 +99,51 @@ auto send_test_mode(Hidraw& hid, bool enable) -> bool {
 }
 
 auto needs_mouse(const Config& cfg) -> bool {
-    if (cfg.gyro.mode == GyroConfig::Mouse) {
+    if (cfg.gyro.mode == GyroConfig::MOUSE) {
         return true;
     }
-    if (cfg.left_stick.mode == StickConfig::Mouse || cfg.left_stick.mode == StickConfig::Scroll) {
+    if (cfg.left_stick.mode == StickConfig::MOUSE || cfg.left_stick.mode == StickConfig::SCROLL) {
         return true;
     }
-    if (cfg.right_stick.mode == StickConfig::Mouse) {
+    if (cfg.right_stick.mode == StickConfig::MOUSE) {
         return true;
     }
-    if (cfg.dpad.mode == DpadConfig::Arrows) {
+    if (cfg.dpad.mode == DpadConfig::ARROWS) {
         return true;
     }
     if (!cfg.emulate_elite) {
         for (const auto& [btn, target] : cfg.button_remaps) {
             (void)btn;
-            if (target.type == RemapTarget::MouseButton || target.type == RemapTarget::Key) {
+            if (target.type == RemapTarget::MOUSE_BUTTON || target.type == RemapTarget::KEY) {
                 return true;
             }
         }
     }
     for (const auto& [name, layer] : cfg.layers) {
         (void)name;
-        if (layer.gyro && layer.gyro->mode == GyroConfig::Mouse) {
+        if (layer.gyro && layer.gyro->mode == GyroConfig::MOUSE) {
             return true;
         }
-        if (layer.stick_right && layer.stick_right->mode == StickConfig::Mouse) {
+        if (layer.stick_right && layer.stick_right->mode == StickConfig::MOUSE) {
             return true;
         }
-        if (layer.stick_left && layer.stick_left->mode == StickConfig::Mouse) {
+        if (layer.stick_left && layer.stick_left->mode == StickConfig::MOUSE) {
             return true;
         }
-        if (layer.stick_left && layer.stick_left->mode == StickConfig::Scroll) {
+        if (layer.stick_left && layer.stick_left->mode == StickConfig::SCROLL) {
             return true;
         }
-        if (layer.dpad && layer.dpad->mode == DpadConfig::Arrows) {
+        if (layer.dpad && layer.dpad->mode == DpadConfig::ARROWS) {
             return true;
         }
         for (const auto& [btn, target] : layer.remap) {
             (void)btn;
-            if (target.type == RemapTarget::MouseButton || target.type == RemapTarget::Key) {
+            if (target.type == RemapTarget::MOUSE_BUTTON || target.type == RemapTarget::KEY) {
                 return true;
             }
         }
         if (layer.tap &&
-            (layer.tap->type == RemapTarget::Key || layer.tap->type == RemapTarget::MouseButton)) {
+            (layer.tap->type == RemapTarget::KEY || layer.tap->type == RemapTarget::MOUSE_BUTTON)) {
             return true;
         }
     }
@@ -176,10 +177,6 @@ auto block_redundant_input(const Hidraw& hidraw) -> Result<UniqueFd> {
     if (!hidraw_path) {
         return std::unexpected(hidraw_path.error());
     }
-    // We want to find the now-redundant input device that identifies this as a generic controller;
-    // we do this by finding the input event node that's on the same usb device as our hidraw node.
-    // path format is: usb-0000:00:14.0-4/inputN
-    // Our hidraw is on one interface, the generic one is on interface 0.
     auto slash = hidraw_path->rfind('/');
     if (slash == std::string::npos || !hidraw_path->substr(slash).starts_with("/input")) {
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));
@@ -198,9 +195,6 @@ auto block_redundant_input(const Hidraw& hidraw) -> Result<UniqueFd> {
         return std::unexpected(std::error_code(err, std::system_category()));
     }
     UniqueFd result(fd);
-    // Exclusively grab this input device. Until our process dies or this file descriptor is closed,
-    // all other attempts to read from this input will not receive any events, which prevents
-    // double-events for games that listen to multiple controllers.
     if (ioctl(fd, EVIOCGRAB, 1) < 0) {
         const int err = errno;
         return std::unexpected(std::error_code(err, std::system_category()));
@@ -208,7 +202,7 @@ auto block_redundant_input(const Hidraw& hidraw) -> Result<UniqueFd> {
 
     return result;
 }
-} // namespace
+}
 
 void Gamepad::SuppressState::apply(GamepadState& s) const {
     if (left_stick) { s.left_x = 0; s.left_y = 0; }
@@ -332,8 +326,29 @@ auto Gamepad::get_active_layer() -> const LayerConfig* {
     return nullptr;
 }
 
+void Gamepad::emit_key_target(const RemapTarget& target, bool pressed) {
+    if (!input_) {
+        return;
+    }
+    if (target.combo.size() < 2) {
+        input_->key(target.code, pressed);
+        [[maybe_unused]] auto r = input_->sync();
+        return;
+    }
+    if (pressed) {
+        for (const int code : target.combo) {
+            input_->key(code, true);
+        }
+    } else {
+        for (const int code : std::views::reverse(target.combo)) {
+            input_->key(code, false);
+        }
+    }
+    [[maybe_unused]] auto r = input_->sync();
+}
+
 void Gamepad::emit_tap(const RemapTarget& tap) {
-    if (tap.type == RemapTarget::GamepadButton) {
+    if (tap.type == RemapTarget::GAMEPAD_BUTTON) {
         injected_buttons_ |= tap.btn_mask;
         injected_ext_ |= tap.ext_mask;
         return;
@@ -341,12 +356,10 @@ void Gamepad::emit_tap(const RemapTarget& tap) {
     if (!input_) {
         return;
     }
-    if (tap.type == RemapTarget::Key) {
-        input_->key(tap.code, true);
-        [[maybe_unused]] auto r1 = input_->sync();
-        input_->key(tap.code, false);
-        [[maybe_unused]] auto r2 = input_->sync();
-    } else if (tap.type == RemapTarget::MouseButton) {
+    if (tap.type == RemapTarget::KEY) {
+        emit_key_target(tap, true);
+        emit_key_target(tap, false);
+    } else if (tap.type == RemapTarget::MOUSE_BUTTON) {
         input_->click(tap.code, true);
         [[maybe_unused]] auto r1 = input_->sync();
         input_->click(tap.code, false);
@@ -368,7 +381,7 @@ void Gamepad::update_tap_hold(const GamepadState& state, const GamepadState& pre
             continue;
         }
 
-        if (layer.activation == LayerConfig::Toggle) {
+        if (layer.activation == LayerConfig::TOGGLE) {
             if (released && toggled_layers_.contains(name)) {
                 toggled_layers_.erase(name);
                 DBG("Layer '" << name << "' toggled off");
@@ -380,7 +393,6 @@ void Gamepad::update_tap_hold(const GamepadState& state, const GamepadState& pre
             continue;
         }
 
-        // Hold mode
         if (pressed && active == nullptr) {
             tap_hold_states_[name] = {name, now, false};
             continue;
@@ -444,7 +456,7 @@ auto Gamepad::get_effective_dpad() -> const DpadConfig& {
 void Gamepad::process_gyro(const GamepadState& state) {
     const auto& gcfg = get_effective_gyro();
 
-    if (gcfg.mode == GyroConfig::Off) {
+    if (gcfg.mode == GyroConfig::OFF) {
         gyro_vel_x_ = gyro_vel_y_ = 0.0F;
         gyro_accum_x_ = gyro_accum_y_ = 0.0F;
         gyro_stick_x_ = gyro_stick_y_ = 0;
@@ -464,7 +476,7 @@ void Gamepad::process_gyro(const GamepadState& state) {
     gz = apply_curve(gz, gcfg.curve, dz);
     gx = apply_curve(gx, gcfg.curve, dz);
 
-    if (gcfg.mode == GyroConfig::Joystick) {
+    if (gcfg.mode == GyroConfig::JOYSTICK) {
         constexpr float JOYSTICK_SCALE = 20.0F;
         auto stick_x = gz * gcfg.sensitivity_x * JOYSTICK_SCALE;
         auto stick_y = gx * gcfg.sensitivity_y * JOYSTICK_SCALE;
@@ -518,8 +530,8 @@ void Gamepad::process_mouse_stick(const GamepadState& state) {
 
     const auto& right_cfg = get_effective_stick_right();
     const auto& left_cfg = get_effective_stick_left();
-    const bool right_mouse = right_cfg.mode == StickConfig::Mouse;
-    const bool left_mouse = left_cfg.mode == StickConfig::Mouse;
+    const bool right_mouse = right_cfg.mode == StickConfig::MOUSE;
+    const bool left_mouse = left_cfg.mode == StickConfig::MOUSE;
 
     if (!right_mouse && !left_mouse) {
         return;
@@ -560,8 +572,8 @@ void Gamepad::process_scroll_stick(const GamepadState& state) {
 
     const auto& left_cfg = get_effective_stick_left();
     const auto& right_cfg = get_effective_stick_right();
-    const bool left_scroll = left_cfg.mode == StickConfig::Scroll;
-    const bool right_scroll = right_cfg.mode == StickConfig::Scroll;
+    const bool left_scroll = left_cfg.mode == StickConfig::SCROLL;
+    const bool right_scroll = right_cfg.mode == StickConfig::SCROLL;
 
     if (!left_scroll && !right_scroll) {
         scroll_accum_v_ = scroll_accum_h_ = 0.0F;
@@ -608,7 +620,7 @@ void Gamepad::process_layer_dpad(const GamepadState& state) {
     }
 
     const auto& cfg = get_effective_dpad();
-    const bool active = cfg.mode == DpadConfig::Arrows;
+    const bool active = cfg.mode == DpadConfig::ARROWS;
 
     const bool in_layer = get_active_layer() != nullptr;
     if (active && cfg.suppress_gamepad && in_layer) {
@@ -664,7 +676,7 @@ void Gamepad::process_base_remaps(const GamepadState& state, const GamepadState&
         suppressed_buttons_ |= btn_mask;
         suppressed_ext_ |= ext_mask;
 
-        if (target.type == RemapTarget::Disabled) {
+        if (target.type == RemapTarget::DISABLED) {
             continue;
         }
 
@@ -678,7 +690,7 @@ void Gamepad::process_base_remaps(const GamepadState& state, const GamepadState&
 
         const bool curr = is_button_pressed(state, btn);
 
-        if (target.type == RemapTarget::GamepadButton) {
+        if (target.type == RemapTarget::GAMEPAD_BUTTON) {
             if (curr) {
                 injected_buttons_ |= target.btn_mask;
                 injected_ext_ |= target.ext_mask;
@@ -695,10 +707,9 @@ void Gamepad::process_base_remaps(const GamepadState& state, const GamepadState&
             continue;
         }
 
-        if (target.type == RemapTarget::Key) {
-            input_->key(target.code, curr);
-            [[maybe_unused]] auto r1 = input_->sync();
-        } else if (target.type == RemapTarget::MouseButton) {
+        if (target.type == RemapTarget::KEY) {
+            emit_key_target(target, curr);
+        } else if (target.type == RemapTarget::MOUSE_BUTTON) {
             input_->click(target.code, curr);
             [[maybe_unused]] auto r1 = input_->sync();
         }
@@ -716,13 +727,13 @@ void Gamepad::process_layer_buttons(const GamepadState& state, const GamepadStat
         suppressed_buttons_ |= btn_mask;
         suppressed_ext_ |= ext_mask;
 
-        if (target.type == RemapTarget::Disabled) {
+        if (target.type == RemapTarget::DISABLED) {
             continue;
         }
 
         const bool curr = is_button_pressed(state, btn);
 
-        if (target.type == RemapTarget::GamepadButton) {
+        if (target.type == RemapTarget::GAMEPAD_BUTTON) {
             if (curr) {
                 injected_buttons_ |= target.btn_mask;
                 injected_ext_ |= target.ext_mask;
@@ -741,12 +752,11 @@ void Gamepad::process_layer_buttons(const GamepadState& state, const GamepadStat
 
         DBG("Layer remap: " << btn << " -> code=" << target.code << " pressed=" << curr);
 
-        if (target.type == RemapTarget::MouseButton) {
+        if (target.type == RemapTarget::MOUSE_BUTTON) {
             input_->click(target.code, curr);
             [[maybe_unused]] auto r1 = input_->sync();
-        } else if (target.type == RemapTarget::Key) {
-            input_->key(target.code, curr);
-            [[maybe_unused]] auto r1 = input_->sync();
+        } else if (target.type == RemapTarget::KEY) {
+            emit_key_target(target, curr);
         }
     }
 }
@@ -788,7 +798,7 @@ auto Gamepad::poll() -> Result<void> {
         emit_state.ext_buttons = (emit_state.ext_buttons & ~suppressed_ext_) | injected_ext_;
         suppress_.apply(emit_state);
 
-        if (get_effective_gyro().mode == GyroConfig::Joystick) {
+        if (get_effective_gyro().mode == GyroConfig::JOYSTICK) {
             emit_state.right_x = static_cast<int16_t>(gyro_stick_x_);
             emit_state.right_y = static_cast<int16_t>(gyro_stick_y_);
         }
@@ -843,8 +853,34 @@ void Gamepad::poll_ff() {
     }
 }
 
+auto Gamepad::reload(const Config& new_cfg) -> bool {
+    if (new_cfg.emulate_elite != config_.emulate_elite) {
+        return false;
+    }
+    if (needs_mouse(new_cfg) != input_.has_value()) {
+        return false;
+    }
+    if (new_cfg.emulate_elite && new_cfg.ext_mappings != config_.ext_mappings) {
+        return false;
+    }
+    config_ = new_cfg;
+    tap_hold_states_.clear();
+    toggled_layers_.clear();
+    suppress_ = {};
+    prev_suppress_ = {};
+    suppressed_buttons_ = 0;
+    suppressed_ext_ = 0;
+    prev_suppressed_buttons_ = 0;
+    prev_suppressed_ext_ = 0;
+    injected_buttons_ = 0;
+    injected_ext_ = 0;
+    prev_injected_buttons_ = 0;
+    prev_injected_ext_ = 0;
+    return true;
+}
+
 Gamepad::~Gamepad() {
     send_test_mode(hidraw_, false);
 }
 
-} // namespace vader5
+}

@@ -37,4 +37,4 @@ class Hidraw {
 
 auto find_hidraw_device(uint16_t vid, uint16_t pid, int iface) -> Result<std::string>;
 
-} // namespace vader5
+}

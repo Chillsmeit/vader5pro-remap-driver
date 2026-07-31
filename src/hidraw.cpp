@@ -174,13 +174,13 @@ auto Hidraw::parse_report_24g(std::span<const uint8_t> data) -> std::optional<Ga
         (((btns >> 7) & 1) * PAD_Y));
     state.left_trigger = data[OFF_LT];
     state.right_trigger = data[OFF_RT];
-    state.left_x = read_s16(&data[OFF_LX]);
-    state.left_y = static_cast<int16_t>(-read_s16(&data[OFF_LY]));
-    state.right_x = read_s16(&data[OFF_RX]);
-    state.right_y = static_cast<int16_t>(-read_s16(&data[OFF_RY]));
+    state.left_x = read_s16(data.subspan(OFF_LX));
+    state.left_y = static_cast<int16_t>(-read_s16(data.subspan(OFF_LY)));
+    state.right_x = read_s16(data.subspan(OFF_RX));
+    state.right_y = static_cast<int16_t>(-read_s16(data.subspan(OFF_RY)));
     state.ext_buttons = data[OFF_EXT1];
     state.ext_buttons2 = data[OFF_EXT2];
     return state;
 }
 
-} // namespace vader5
+}

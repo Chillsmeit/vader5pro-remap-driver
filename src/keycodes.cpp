@@ -1,6 +1,7 @@
 #include "vader5/keycodes.hpp"
 
 #include <array>
+#include <vector>
 
 namespace vader5 {
 
@@ -116,9 +117,28 @@ constexpr std::array KEY_TABLE = {
     KeyEntry{"BTN_BACK", BTN_BACK},
 };
 // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
-} // namespace
+}
 
 auto keycode_from_name(std::string_view name) -> std::optional<int> {
+    constexpr std::string_view RAW_PREFIX = "code:";
+    if (name.starts_with(RAW_PREFIX)) {
+        name.remove_prefix(RAW_PREFIX.size());
+        if (name.empty()) {
+            return std::nullopt;
+        }
+        constexpr int MAX_CODE = KEY_MAX;
+        int code = 0;
+        for (const char digit : name) {
+            if (digit < '0' || digit > '9') {
+                return std::nullopt;
+            }
+            code = (code * 10) + (digit - '0');
+            if (code > MAX_CODE) {
+                return std::nullopt;
+            }
+        }
+        return code;
+    }
     for (const auto& entry : KEY_TABLE) {
         if (entry.name == name) {
             return entry.code;
@@ -127,4 +147,13 @@ auto keycode_from_name(std::string_view name) -> std::optional<int> {
     return std::nullopt;
 }
 
-} // namespace vader5
+auto keycode_names() -> std::vector<std::string_view> {
+    std::vector<std::string_view> names;
+    names.reserve(KEY_TABLE.size());
+    for (const auto& entry : KEY_TABLE) {
+        names.push_back(entry.name);
+    }
+    return names;
+}
+
+}

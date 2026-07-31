@@ -553,7 +553,7 @@ auto open_hidraw_config(int iface) -> std::optional<vader5::Hidraw> {
     add_log("IF" + std::to_string(iface) + ": hidraw OK");
     return std::move(*hidraw_cfg);
 }
-} // namespace
+}
 
 auto main(int argc, char* argv[]) -> int {
     auto opts = vader5::DebugOptions::parse(argc, argv);

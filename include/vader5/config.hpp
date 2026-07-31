@@ -6,51 +6,56 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace vader5 {
 
-// Target for button remapping
+constexpr float DEFAULT_GYRO_SENSITIVITY = 1.5F;
+constexpr float DEFAULT_GYRO_SMOOTHING = 0.3F;
+constexpr int DEFAULT_HOLD_TIMEOUT_MS = 200;
+
 struct RemapTarget {
-    enum Type { Disabled, Key, MouseButton, MouseMove, GamepadButton };
-    Type type{Key};
+    enum Type { DISABLED, KEY, MOUSE_BUTTON, MOUSE_MOVE, GAMEPAD_BUTTON };
+    Type type{KEY};
     int code{0};
     uint16_t btn_mask{0};
     uint8_t ext_mask{0};
+    std::vector<int> combo{}; // NOLINT(readability-redundant-member-init)
 };
 
 struct GyroConfig {
-    enum Mode { Off, Mouse, Joystick };
-    Mode mode{Off};
-    float sensitivity_x{1.5F};
-    float sensitivity_y{1.5F};
+    enum Mode { OFF, MOUSE, JOYSTICK };
+    Mode mode{OFF};
+    float sensitivity_x{DEFAULT_GYRO_SENSITIVITY};
+    float sensitivity_y{DEFAULT_GYRO_SENSITIVITY};
     int deadzone{0};
-    float smoothing{0.3F};
+    float smoothing{DEFAULT_GYRO_SMOOTHING};
     float curve{1.0F};
     bool invert_x{false};
     bool invert_y{false};
 };
 
 struct StickConfig {
-    enum Mode { Gamepad, Mouse, Scroll };
-    Mode mode{Gamepad};
+    enum Mode { GAMEPAD, MOUSE, SCROLL };
+    Mode mode{GAMEPAD};
     int deadzone{128};
     float sensitivity{1.0F};
     bool suppress_gamepad{false};
 };
 
 struct DpadConfig {
-    enum Mode { Gamepad, Arrows };
-    Mode mode{Gamepad};
+    enum Mode { GAMEPAD, ARROWS };
+    Mode mode{GAMEPAD};
     bool suppress_gamepad{false};
 };
 
 struct LayerConfig {
-    enum Activation { Hold, Toggle };
+    enum Activation { HOLD, TOGGLE };
     std::string name;
     std::string trigger;
     std::optional<RemapTarget> tap;
-    int hold_timeout{200};
-    Activation activation{Hold};
+    int hold_timeout{DEFAULT_HOLD_TIMEOUT_MS};
+    Activation activation{HOLD};
 
     std::optional<GyroConfig> gyro;
     std::optional<StickConfig> stick_left;
@@ -75,4 +80,4 @@ struct Config {
 
 auto parse_remap_target(std::string_view value) -> std::optional<RemapTarget>;
 
-} // namespace vader5
+}

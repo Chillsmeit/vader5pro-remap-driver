@@ -1,5 +1,6 @@
 #include "vader5/config.hpp"
 #include "vader5/gamepad.hpp"
+#include "vader5/keycodes.hpp"
 #include "vader5/types.hpp"
 
 #include <array>
@@ -17,34 +18,117 @@
 
 namespace {
 std::atomic<bool> g_running{true};
+std::atomic<bool> g_reload{false};
 
-void handle_signal(int /*signum*/) {
-    g_running.store(false, std::memory_order_relaxed);
+void handle_signal(int signum) {
+    if (signum == SIGHUP) {
+        g_reload.store(true, std::memory_order_relaxed);
+    } else {
+        g_running.store(false, std::memory_order_relaxed);
+    }
 }
 
 constexpr auto RETRY_INTERVAL = std::chrono::seconds(2);
-} // namespace
 
-auto main(int argc, char* argv[]) -> int {
-    std::string config_path = vader5::Config::default_path();
+struct Args {
+    std::string config_path;
     std::string device_name;
-    const std::span args(argv, static_cast<size_t>(argc)); // NOLINT
+    bool check_config = false;
+    bool list_keys = false;
+    bool list_buttons = false;
+};
+
+auto parse_args(int argc, char** argv) -> Args {
+    Args out;
+    out.config_path = vader5::Config::default_path();
+    const std::span args(argv, static_cast<size_t>(argc));
     for (size_t i = 1; i < args.size(); ++i) {
         if ((std::strcmp(args[i], "-c") == 0 || std::strcmp(args[i], "--config") == 0) &&
             i + 1 < args.size()) {
-            config_path = args[++i];
+            out.config_path = args[++i];
         } else if ((std::strcmp(args[i], "-d") == 0 || std::strcmp(args[i], "--device") == 0) &&
                    i + 1 < args.size()) {
-            device_name = args[++i];
+            out.device_name = args[++i];
+        } else if (std::strcmp(args[i], "--check-config") == 0) {
+            out.check_config = true;
+        } else if (std::strcmp(args[i], "--list-keys") == 0) {
+            out.list_keys = true;
+        } else if (std::strcmp(args[i], "--list-buttons") == 0) {
+            out.list_buttons = true;
         }
+    }
+    return out;
+}
+
+auto run_check_config(const std::string& path) -> int {
+    auto loaded = vader5::Config::load(path);
+    if (!loaded) {
+        std::cerr << "vader5d: config at " << path << " is invalid\n";
+        return 1;
+    }
+    std::cout << "vader5d: config at " << path << " OK (" << loaded->button_remaps.size()
+              << " base remaps, " << loaded->layers.size() << " layers)\n";
+    return 0;
+}
+
+void print_keys() {
+    for (const auto& name : vader5::keycode_names()) {
+        std::cout << name << "\n";
+    }
+    for (const char* alias : {"mouse_left", "mouse_right", "mouse_middle", "mouse_side",
+                              "mouse_extra", "mouse_forward", "mouse_back", "disabled"}) {
+        std::cout << alias << "\n";
+    }
+    std::cout << "code:<N>\n";
+    std::cout << "<key>+<key>+...\n";
+}
+
+void print_buttons() {
+    for (const char* name : {"A", "B", "X", "Y", "LB", "RB", "LT", "RT", "M1", "M2", "M3", "M4",
+                             "LM", "RM", "C", "Z", "START", "SELECT", "L3", "R3"}) {
+        std::cout << name << "\n";
+    }
+}
+
+auto do_reload(vader5::Gamepad& gamepad, const std::string& path, vader5::Config& cfg) -> bool {
+    auto loaded = vader5::Config::load(path);
+    if (!loaded) {
+        std::cerr << "vader5d: reload failed, keeping current config\n";
+        return false;
+    }
+    cfg = *loaded;
+    if (!gamepad.reload(cfg)) {
+        std::cout << "vader5d: config change needs device reinit, reconnecting\n";
+        return true;
+    }
+    std::cout << "vader5d: config reloaded\n";
+    return false;
+}
+}
+
+auto main(int argc, char** argv) -> int {
+    const auto args = parse_args(argc, argv);
+    if (args.check_config) {
+        return run_check_config(args.config_path);
+    }
+    if (args.list_keys) {
+        print_keys();
+        return 0;
+    }
+    if (args.list_buttons) {
+        print_buttons();
+        return 0;
     }
 
     vader5::Config cfg;
+    const std::string& config_path = args.config_path;
     if (auto loaded = vader5::Config::load(config_path); loaded) {
         cfg = *loaded;
-        std::cout << "vader5d: Loaded config from " << config_path << "\n";
+        std::cout << "vader5d: Loaded config from " << config_path << " ("
+                  << cfg.button_remaps.size() << " base remaps, " << cfg.layers.size()
+                  << " layers)\n";
     } else {
-        std::cout << "vader5d: No config at " << config_path << ", using defaults\n";
+        std::cout << "vader5d: No usable config at " << config_path << ", using defaults\n";
     }
 
     std::cout << "vader5d: Waiting for Vader 5 Pro (VID:"
@@ -55,6 +139,7 @@ auto main(int argc, char* argv[]) -> int {
     sa.sa_handler = handle_signal;
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGHUP, &sa, nullptr);
 
     sigset_t empty_mask;
     sigemptyset(&empty_mask);
@@ -63,9 +148,10 @@ auto main(int argc, char* argv[]) -> int {
     sigemptyset(&block_mask);
     sigaddset(&block_mask, SIGTERM);
     sigaddset(&block_mask, SIGINT);
+    sigaddset(&block_mask, SIGHUP);
 
     while (g_running.load(std::memory_order_relaxed)) {
-        auto gamepad = vader5::Gamepad::open(cfg, device_name);
+        auto gamepad = vader5::Gamepad::open(cfg, args.device_name);
         if (!gamepad) {
             std::this_thread::sleep_for(RETRY_INTERVAL);
             continue;
@@ -77,12 +163,14 @@ auto main(int argc, char* argv[]) -> int {
             {.fd = gamepad->ff_fd(), .events = POLLIN, .revents = 0},
         }};
 
-        // Block signals except when we're polling, which allows an indefinite poll without a race
-        // where we may miss a signal
         sigset_t old_mask;
         sigprocmask(SIG_BLOCK, &block_mask, &old_mask);
 
         while (g_running.load(std::memory_order_relaxed)) {
+            if (g_reload.exchange(false, std::memory_order_relaxed) &&
+                do_reload(*gamepad, config_path, cfg)) {
+                break;
+            }
             const int ret = ppoll(pfds.data(), pfds.size(), nullptr, &empty_mask);
             if (ret < 0) {
                 const int err = errno;

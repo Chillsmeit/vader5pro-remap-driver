@@ -41,14 +41,13 @@ class Uinput {
     int fd_{-1};
     std::array<std::optional<int>, 8> ext_mappings_{};
     std::array<RumbleEffect, 16> ff_effects_{};
-    std::vector<input_event> events_buffer_{};
+    std::vector<input_event> events_buffer_;
 
     void emit_key(int code, int value);
     void emit_abs(int code, int value);
     inline void buffer_event(const input_event& ev);
 };
 
-// Separate device for mouse/keyboard to avoid Steam detection issues
 class InputDevice {
   public:
     static auto create(const char* name = "Vader 5 Pro Mouse") -> Result<InputDevice>;
@@ -68,11 +67,11 @@ class InputDevice {
   private:
     explicit InputDevice(int fd) : fd_(fd) {}
     int fd_{-1};
-    std::vector<input_event> events_buffer_{};
+    std::vector<input_event> events_buffer_;
 
     void emit_rel(int code, int value);
     void emit_key(int code, int value);
     inline void buffer_event(const input_event& ev);
 };
 
-} // namespace vader5
+}

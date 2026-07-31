@@ -8,28 +8,36 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iostream>
 
 namespace vader5 {
 namespace {
 
 inline auto sync(std::vector<input_event>& events, int fd) -> Result<void> {
-    if (!events.empty()) {
-        input_event event{};
-        event.type = EV_SYN;
-        event.code = SYN_REPORT;
-        events.push_back(event);
-        auto buffer = std::as_bytes(std::span{events});
-        while (!buffer.empty()) {
-            ssize_t result = ::write(fd, buffer.data(), buffer.size());
-            if (result < 0) {
-                int err = errno;
-                events.clear();
-                return std::unexpected(std::error_code(err, std::system_category()));
-            }
-            buffer = buffer.subspan(result);
-        }
-        events.clear();
+    static int consecutive_failures = 0;
+    if (events.empty()) {
+        return {};
     }
+    input_event event{};
+    event.type = EV_SYN;
+    event.code = SYN_REPORT;
+    events.push_back(event);
+    auto buffer = std::as_bytes(std::span{events});
+    while (!buffer.empty()) {
+        ssize_t result = ::write(fd, buffer.data(), buffer.size());
+        if (result < 0) {
+            int err = errno;
+            events.clear();
+            if (consecutive_failures++ == 0) {
+                std::cerr << "vader5d: uinput write failed: " << std::strerror(err)
+                          << " (repeats suppressed until it recovers)\n";
+            }
+            return std::unexpected(std::error_code(err, std::system_category()));
+        }
+        buffer = buffer.subspan(result);
+    }
+    events.clear();
+    consecutive_failures = 0;
     return {};
 }
 
@@ -39,18 +47,18 @@ constexpr int AXIS_FUZZ = 16;
 constexpr int AXIS_FLAT = 128;
 constexpr int TRIGGER_MIN = 0;
 constexpr int TRIGGER_MAX = 255;
+constexpr int HAT_MIN = -1;
+constexpr int HAT_MAX = 1;
 constexpr int EXT_BUTTON_COUNT = 8;
 constexpr std::array<uint8_t, 8> EXT_MASKS = {EXT_C,  EXT_Z,  EXT_M1, EXT_M2,
                                               EXT_M3, EXT_M4, EXT_LM, EXT_RM};
-// Default codes: M1-M4 use BTN_TRIGGER_HAPPY5-8 to match xpad Elite paddles
-// Note: Hardware bit3=M3, bit4=M2 (reversed from label)
 constexpr std::array<int, 8> DEFAULT_EXT_CODES = {
-    BTN_TRIGGER_HAPPY1, BTN_TRIGGER_HAPPY2, // C, Z
-    BTN_TRIGGER_HAPPY5, BTN_TRIGGER_HAPPY7, // M1, M3 (Elite P1, P3)
-    BTN_TRIGGER_HAPPY6, BTN_TRIGGER_HAPPY8, // M2, M4 (Elite P2, P4)
-    BTN_TRIGGER_HAPPY3, BTN_TRIGGER_HAPPY4, // LM, RM
+    BTN_TRIGGER_HAPPY1, BTN_TRIGGER_HAPPY2,
+    BTN_TRIGGER_HAPPY5, BTN_TRIGGER_HAPPY7,
+    BTN_TRIGGER_HAPPY6, BTN_TRIGGER_HAPPY8,
+    BTN_TRIGGER_HAPPY3, BTN_TRIGGER_HAPPY4,
 };
-} // namespace
+}
 
 inline void Uinput::buffer_event(const input_event& ev) {
     events_buffer_.push_back(ev);
@@ -89,11 +97,6 @@ auto Uinput::create(std::span<const std::optional<int>> ext_mappings,
         }
     }
 
-    (void)ioctl(file_descriptor, UI_SET_KEYBIT, BTN_DPAD_UP);
-    (void)ioctl(file_descriptor, UI_SET_KEYBIT, BTN_DPAD_DOWN);
-    (void)ioctl(file_descriptor, UI_SET_KEYBIT, BTN_DPAD_LEFT);
-    (void)ioctl(file_descriptor, UI_SET_KEYBIT, BTN_DPAD_RIGHT);
-
     uinput_abs_setup abs_setup{};
 
     auto setup_stick = [&](int code) {
@@ -114,12 +117,23 @@ auto Uinput::create(std::span<const std::optional<int>> ext_mappings,
         (void)ioctl(file_descriptor, UI_ABS_SETUP, &abs_setup);
     };
 
+    auto setup_hat = [&](int code) {
+        abs_setup.code = static_cast<uint16_t>(code);
+        abs_setup.absinfo.minimum = HAT_MIN;
+        abs_setup.absinfo.maximum = HAT_MAX;
+        abs_setup.absinfo.fuzz = 0;
+        abs_setup.absinfo.flat = 0;
+        (void)ioctl(file_descriptor, UI_ABS_SETUP, &abs_setup);
+    };
+
     (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_X);
     (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_Y);
     (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_RX);
     (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_RY);
     (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_Z);
     (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_RZ);
+    (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_HAT0X);
+    (void)ioctl(file_descriptor, UI_SET_ABSBIT, ABS_HAT0Y);
 
     setup_stick(ABS_X);
     setup_stick(ABS_Y);
@@ -127,6 +141,8 @@ auto Uinput::create(std::span<const std::optional<int>> ext_mappings,
     setup_stick(ABS_RY);
     setup_trigger(ABS_Z);
     setup_trigger(ABS_RZ);
+    setup_hat(ABS_HAT0X);
+    setup_hat(ABS_HAT0Y);
 
     uinput_setup setup{};
     std::strncpy(setup.name, name, UINPUT_MAX_NAME_SIZE - 1);
@@ -212,7 +228,25 @@ auto is_dpad_left(uint8_t dpad) -> bool {
 auto is_dpad_right(uint8_t dpad) -> bool {
     return dpad == DPAD_RIGHT || dpad == DPAD_UP_RIGHT || dpad == DPAD_DOWN_RIGHT;
 }
-} // namespace
+auto dpad_hat_x(uint8_t dpad) -> int {
+    if (is_dpad_left(dpad)) {
+        return -1;
+    }
+    if (is_dpad_right(dpad)) {
+        return 1;
+    }
+    return 0;
+}
+auto dpad_hat_y(uint8_t dpad) -> int {
+    if (is_dpad_up(dpad)) {
+        return -1;
+    }
+    if (is_dpad_down(dpad)) {
+        return 1;
+    }
+    return 0;
+}
+}
 
 auto Uinput::emit(const GamepadState& state, const GamepadState& prev) -> Result<void> {
     if (state.left_x != prev.left_x) {
@@ -277,26 +311,13 @@ auto Uinput::emit(const GamepadState& state, const GamepadState& prev) -> Result
     }
 
     if (state.dpad != prev.dpad) {
-        const bool dir_up = is_dpad_up(state.dpad);
-        const bool dir_down = is_dpad_down(state.dpad);
-        const bool dir_left = is_dpad_left(state.dpad);
-        const bool dir_right = is_dpad_right(state.dpad);
-        const bool old_up = is_dpad_up(prev.dpad);
-        const bool old_down = is_dpad_down(prev.dpad);
-        const bool old_left = is_dpad_left(prev.dpad);
-        const bool old_right = is_dpad_right(prev.dpad);
-
-        if (dir_up != old_up) {
-            emit_key(BTN_DPAD_UP, dir_up ? 1 : 0);
+        const int hat_x = dpad_hat_x(state.dpad);
+        const int hat_y = dpad_hat_y(state.dpad);
+        if (hat_x != dpad_hat_x(prev.dpad)) {
+            emit_abs(ABS_HAT0X, hat_x);
         }
-        if (dir_down != old_down) {
-            emit_key(BTN_DPAD_DOWN, dir_down ? 1 : 0);
-        }
-        if (dir_left != old_left) {
-            emit_key(BTN_DPAD_LEFT, dir_left ? 1 : 0);
-        }
-        if (dir_right != old_right) {
-            emit_key(BTN_DPAD_RIGHT, dir_right ? 1 : 0);
+        if (hat_y != dpad_hat_y(prev.dpad)) {
+            emit_abs(ABS_HAT0Y, hat_y);
         }
     }
 
@@ -353,7 +374,6 @@ auto Uinput::poll_ff() -> std::optional<RumbleEffect> {
     return result;
 }
 
-// InputDevice - separate mouse/keyboard device
 auto InputDevice::create(const char* name) -> Result<InputDevice> {
     const int fd = ::open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if (fd < 0) {
@@ -364,7 +384,6 @@ auto InputDevice::create(const char* name) -> Result<InputDevice> {
     (void)ioctl(fd, UI_SET_EVBIT, EV_REL);
     (void)ioctl(fd, UI_SET_EVBIT, EV_SYN);
 
-    // Mouse
     (void)ioctl(fd, UI_SET_RELBIT, REL_X);
     (void)ioctl(fd, UI_SET_RELBIT, REL_Y);
     (void)ioctl(fd, UI_SET_RELBIT, REL_WHEEL);
@@ -374,7 +393,6 @@ auto InputDevice::create(const char* name) -> Result<InputDevice> {
         (void)ioctl(fd, UI_SET_KEYBIT, btn);
     }
 
-    // Keyboard - register common keys
     for (int key = KEY_ESC; key <= KEY_KPDOT; ++key) {
         (void)ioctl(fd, UI_SET_KEYBIT, key);
     }
@@ -468,4 +486,4 @@ auto InputDevice::sync() -> Result<void> {
     return ::vader5::sync(events_buffer_, fd_);
 }
 
-} // namespace vader5
+}

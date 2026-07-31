@@ -1,8 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/*
- * USB driver for Flydigi Vader 5 Pro (2.4G USB)
- * Binds to Interface 0 (vendor-specific Xbox-like protocol)
- */
 
 #include <linux/module.h>
 #include <linux/input.h>

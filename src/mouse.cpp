@@ -13,7 +13,7 @@ namespace {
 inline void write_event(int fd, const input_event& ev) {
     if (::write(fd, &ev, sizeof(ev)) < 0) {}
 }
-} // namespace
+}
 
 auto Mouse::create(const char* name) -> Result<Mouse> {
     const int fd = ::open("/dev/uinput", O_WRONLY | O_NONBLOCK);
@@ -111,4 +111,4 @@ void Mouse::sync() const {
     write_event(fd_, ev);
 }
 
-} // namespace vader5
+}
