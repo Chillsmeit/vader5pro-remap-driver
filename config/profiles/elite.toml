@@ -1,5 +1,15 @@
-# Vader 5 Pro Configuration
-# true: Xbox Elite (Steam paddles), false: standard gamepad + base remaps
+# ===============================================================
+#  ELITE profile  -  Xbox Elite Series 2 emulation (uses Steam Input)
+#
+#  emulate_elite = true, so the pad is presented as an Xbox Elite 2 and the
+#  M1-M4 paddles act as Elite paddles. This path generally relies on Steam
+#  Input for the paddle bindings.
+#
+#  For a standalone setup that does NOT need Steam Input, switch to the
+#  keyboard profile:
+#    ./install/install.sh profile keyboard
+# ===============================================================
+
 emulate_elite = true
 
 [gyro]
@@ -10,10 +20,6 @@ deadzone = 128
 
 [stick.right]
 deadzone = 128
-
-# ═══════════════════════════════════════════════════════════════
-# Layers - hold trigger to activate, release to deactivate
-# ═══════════════════════════════════════════════════════════════
 
 # Hold LM for gyro aim + full mouse mode
 [layer.aim]

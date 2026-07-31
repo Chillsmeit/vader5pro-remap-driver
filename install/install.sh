@@ -32,14 +32,13 @@ install_udev() {
 }
 
 install_config() {
-    if [[ ! -f "$CONFIG_DIR/config.toml" ]]; then
-        info "Creating config directory..."
-        mkdir -p "$CONFIG_DIR"
-        cp "$PROJECT_DIR/config/config.toml" "$CONFIG_DIR/config.toml"
-        success "Config created at $CONFIG_DIR/config.toml"
-    else
-        info "Config already exists at $CONFIG_DIR/config.toml"
+    info "Installing profiles to $CONFIG_DIR/profiles..."
+    mkdir -p "$CONFIG_DIR/profiles"
+    cp "$PROJECT_DIR"/config/profiles/*.toml "$CONFIG_DIR/profiles/"
+    if [[ ! -f "$CONFIG_DIR/active" ]]; then
+        echo keyboard > "$CONFIG_DIR/active"
     fi
+    success "Profiles installed (active: $(cat "$CONFIG_DIR/active"))"
 }
 
 install_bin() {
@@ -51,10 +50,10 @@ install_bin() {
 
 install_systemd() {
     info "Installing systemd service (requires sudo)..."
-    if [[ ! -f /etc/vader5/config.toml ]]; then
-        sudo mkdir -p /etc/vader5
-        sudo cp "$PROJECT_DIR/config/config.toml" /etc/vader5/config.toml
-        success "System config created at /etc/vader5/config.toml"
+    sudo mkdir -p /etc/vader5/profiles
+    sudo cp "$PROJECT_DIR"/config/profiles/*.toml /etc/vader5/profiles/
+    if [[ ! -f /etc/vader5/active ]]; then
+        echo keyboard | sudo tee /etc/vader5/active >/dev/null
     fi
     sudo cp -t /etc/systemd/system/ "$SCRIPT_DIR/vader5d@.service"
     sudo cp -t /etc/udev/rules.d/ "$SCRIPT_DIR/99-vader5-systemd.rules"
@@ -66,17 +65,21 @@ install_systemd() {
 }
 
 update_config() {
-    info "Updating system config at /etc/vader5/config.toml from repo (requires sudo)..."
-    sudo mkdir -p /etc/vader5
-    sudo cp "$PROJECT_DIR/config/config.toml" /etc/vader5/config.toml
-    if [[ -x /usr/local/bin/vader5d ]]; then
-        /usr/local/bin/vader5d --check-config -c /etc/vader5/config.toml || {
-            error "New config failed validation, not restarting"
-            return 1
-        }
-    fi
-    sudo systemctl restart 'vader5d@*' 2>/dev/null || true
-    success "System config updated and service restarted"
+    info "Updating profiles at /etc/vader5/profiles from repo (requires sudo)..."
+    sudo mkdir -p /etc/vader5/profiles
+    local f name
+    for f in "$PROJECT_DIR"/config/profiles/*.toml; do
+        name="$(basename "$f")"
+        if [[ -x /usr/local/bin/vader5d ]]; then
+            /usr/local/bin/vader5d --check-config -c "$f" || {
+                error "$name failed validation, skipping"
+                continue
+            }
+        fi
+        sudo cp "$f" "/etc/vader5/profiles/$name"
+    done
+    sudo systemctl reload 'vader5d@*' 2>/dev/null || true
+    success "Profiles updated and service reloaded"
 }
 
 switch_profile() {
@@ -108,8 +111,7 @@ uninstall() {
     sudo rm -f /etc/systemd/system/vader5d.service
     sudo rm -f /etc/systemd/system/vader5d@.service
     sudo rm -f /usr/local/bin/vader5d /usr/local/bin/vader5-debug
-    sudo rm -f /etc/vader5/config.toml
-    sudo rmdir /etc/vader5 2>/dev/null || true
+    sudo rm -rf /etc/vader5
     sudo rm -f /etc/udev/rules.d/99-vader5.rules /etc/udev/rules.d/99-vader5-systemd.rules
     sudo udevadm control --reload-rules
     sudo systemctl daemon-reload

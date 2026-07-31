@@ -1,0 +1,31 @@
+# ===============================================================
+#  KEYBOARD profile  -  standalone, no Steam Input needed
+#
+#  emulate_elite = false, so the pad is NOT presented as an Xbox Elite 2.
+#  It works on its own without Steam Input; the [remap] block below turns
+#  the extra buttons into ordinary key presses.
+#
+#  Switch profiles at runtime (validates, then live-reloads the service):
+#    ./install/install.sh profile elite      # Xbox Elite mode (needs Steam Input)
+#    ./install/install.sh profile keyboard    # this profile
+#    ./install/install.sh profile             # list installed profiles
+# ===============================================================
+
+emulate_elite = false
+
+[gyro]
+mode = "off"
+
+[stick.left]
+deadzone = 128
+
+[stick.right]
+deadzone = 128
+
+[remap]
+M1 = "KEY_9"
+M2 = "KEY_8"
+LM = "KEY_7"
+RM = "KEY_6"
+C  = "KEY_5"
+Z  = "KEY_4"

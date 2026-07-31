@@ -33,9 +33,16 @@ re-reads the config in place; if the change needs new virtual devices (toggling
 
 ## Profiles
 
-Keep several configs side by side and switch between them live. Put each one in
+Keep several configs side by side and switch between them live. Each one lives in
 `<config-dir>/profiles/<name>.toml` (for the systemd service that is
-`/etc/vader5/profiles/`), e.g. `elite.toml` and `keyboard.toml`.
+`/etc/vader5/profiles/`).
+
+The project ships two:
+
+- **`keyboard`** — `emulate_elite = false`, standalone key remaps, does **not** need Steam Input.
+- **`elite`** — `emulate_elite = true`, Xbox Elite 2 emulation, relies on Steam Input for the paddles.
+
+`install.sh` installs both and defaults the active profile to `keyboard`.
 
 The active profile is recorded in `<config-dir>/active` (a file containing just the
 profile name). The driver resolves it at startup and on every reload, so switching
