@@ -42,8 +42,8 @@ profile, updates `active`, and reloads the running daemon live — no restart.
 
 | Profile | `emulate_elite` | Needs Steam Input? | What it does |
 |---------|-----------------|--------------------|--------------|
-| `keyboard` | `false` | No | Extra buttons send keys/mouse; works standalone |
-| `elite`    | `true`  | Yes (paddles) | Emulates an Xbox Elite 2; M1-M4 = Steam paddles |
+| `keyboard` | `false` | No | Extra buttons send keys/mouse <br> Works standalone |
+| `elite`    | `true`  | Yes (paddles) | Emulates an Xbox Elite 2 <br> M1-M4 = Steam paddles |
 
 Edit a profile's `.toml`, then apply it without dropping the controller:
 
