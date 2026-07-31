@@ -65,6 +65,20 @@ install_systemd() {
     success "systemd service installed"
 }
 
+update_config() {
+    info "Updating system config at /etc/vader5/config.toml from repo (requires sudo)..."
+    sudo mkdir -p /etc/vader5
+    sudo cp "$PROJECT_DIR/config/config.toml" /etc/vader5/config.toml
+    if [[ -x /usr/local/bin/vader5d ]]; then
+        /usr/local/bin/vader5d --check-config -c /etc/vader5/config.toml || {
+            error "New config failed validation, not restarting"
+            return 1
+        }
+    fi
+    sudo systemctl restart 'vader5d@*' 2>/dev/null || true
+    success "System config updated and service restarted"
+}
+
 uninstall() {
     info "Uninstalling..."
     sudo systemctl stop system-vader5d.slice 2>/dev/null || true
@@ -86,6 +100,7 @@ usage() {
     echo "  build      Build the project"
     echo "  udev       Install udev rules only"
     echo "  config     Create user config"
+    echo "  update-config  Copy repo config to /etc/vader5 and restart the service"
     echo "  install    Full install (build + udev + config + binaries + systemd)"
     echo "  uninstall  Remove installed files"
     echo ""
@@ -96,6 +111,7 @@ case "${1:-}" in
     build)     build ;;
     udev)      install_udev ;;
     config)    install_config ;;
+    update-config) update_config ;;
     install)   build && install_udev && install_config && install_bin && install_systemd ;;
     uninstall) uninstall ;;
     -h|--help) usage ;;
