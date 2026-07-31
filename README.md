@@ -4,7 +4,9 @@ Linux userspace driver for the Flydigi Vader 5 Pro gamepad (2.4G USB dongle).
 
 ## Features
 
-- Two ready-made profiles you can switch live: **keyboard** (standalone remaps, no Steam Input needed) and **elite** (Xbox Elite emulation with Steam paddle support, M1-M4)
+- Two ready-made profiles you can switch live:
+  - **keyboard** (standalone remaps, no Steam Input needed)
+  - **elite** (Xbox Elite emulation with Steam paddle support, M1-M4)
 - Gyro support: mouse mode or map to right stick (for games without gyro)
 - Layer system with tap-hold (like QMK keyboard firmware)
 - Button remap to keyboard/mouse — including key combos (`KEY_LEFTCTRL+KEY_C`) and any raw evdev code (`code:N`)
@@ -18,8 +20,7 @@ cd vader5pro-remap-driver
 ./install/install.sh install   # build + udev + systemd service (auto-starts via udev)
 ```
 
-The service starts on the **keyboard** profile by default. Switch modes at any time
-(this works even after you delete the source tree):
+The service starts on the **keyboard** profile by default. Switch modes at any time with:
 
 ```bash
 sudo vader5d --switch-profile keyboard   # standalone, no Steam Input
@@ -111,7 +112,7 @@ Only one layer active at a time (first activated wins)
 
 ## Configuration
 
-Profiles live in `config/profiles/*.toml` (installed to `/etc/vader5/profiles/`).
+Profiles live in `config/profiles/*.toml` (installed to `/etc/vader5/profiles/`).<br>
 Below is the `elite` profile as an example:
 
 ```toml
@@ -144,6 +145,28 @@ remap = { A = "mouse_left", B = "mouse_right" }
 trigger = "M1"
 activation = "toggle"
 gyro = { mode = "mouse", sensitivity = 1.5 }
+```
+
+Here is the `keyboard` profile as an example:
+```toml
+emulate_elite = false
+
+[gyro]
+mode = "off"
+
+[stick.left]
+deadzone = 128
+
+[stick.right]
+deadzone = 128
+
+[remap]
+M1 = "KEY_9"
+M2 = "KEY_8"
+LM = "KEY_7"
+RM = "KEY_6"
+C  = "KEY_5"
+Z  = "KEY_4"
 ```
 
 Remap values can be keyboard keys (`KEY_A`), mouse buttons (`mouse_left`), other
