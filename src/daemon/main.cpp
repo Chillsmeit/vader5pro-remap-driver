@@ -3,16 +3,20 @@
 #include "vader5/keycodes.hpp"
 #include "vader5/types.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <span>
 #include <thread>
+#include <vector>
 
 #include <poll.h>
 
@@ -33,9 +37,11 @@ constexpr auto RETRY_INTERVAL = std::chrono::seconds(2);
 struct Args {
     std::string config_path;
     std::string device_name;
+    std::string profile;
     bool check_config = false;
     bool list_keys = false;
     bool list_buttons = false;
+    bool list_profiles = false;
 };
 
 auto parse_args(int argc, char** argv) -> Args {
@@ -55,9 +61,53 @@ auto parse_args(int argc, char** argv) -> Args {
             out.list_keys = true;
         } else if (std::strcmp(args[i], "--list-buttons") == 0) {
             out.list_buttons = true;
+        } else if (std::strcmp(args[i], "--list-profiles") == 0) {
+            out.list_profiles = true;
+        } else if (std::strcmp(args[i], "--profile") == 0 && i + 1 < args.size()) {
+            out.profile = args[++i];
         }
     }
     return out;
+}
+
+auto resolve_config_path(const std::string& base, const std::string& profile) -> std::string {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(base).parent_path();
+    const fs::path profiles = dir / "profiles";
+    if (!profile.empty()) {
+        return (profiles / (profile + ".toml")).string();
+    }
+    std::ifstream active(dir / "active");
+    std::string name;
+    if (active && std::getline(active, name)) {
+        const auto begin = name.find_first_not_of(" \t\r\n");
+        const auto end = name.find_last_not_of(" \t\r\n");
+        if (begin != std::string::npos) {
+            name = name.substr(begin, end - begin + 1);
+            std::error_code ec;
+            const fs::path candidate = profiles / (name + ".toml");
+            if (fs::exists(candidate, ec)) {
+                return candidate.string();
+            }
+        }
+    }
+    return base;
+}
+
+void print_profiles(const std::string& base) {
+    namespace fs = std::filesystem;
+    const fs::path profiles = fs::path(base).parent_path() / "profiles";
+    std::error_code ec;
+    std::vector<std::string> names;
+    for (const auto& entry : fs::directory_iterator(profiles, ec)) {
+        if (entry.path().extension() == ".toml") {
+            names.push_back(entry.path().stem().string());
+        }
+    }
+    std::ranges::sort(names);
+    for (const auto& name : names) {
+        std::cout << name << "\n";
+    }
 }
 
 auto run_check_config(const std::string& path) -> int {
@@ -90,7 +140,9 @@ void print_buttons() {
     }
 }
 
-auto do_reload(vader5::Gamepad& gamepad, const std::string& path, vader5::Config& cfg) -> bool {
+auto do_reload(vader5::Gamepad& gamepad, const std::string& base, const std::string& profile,
+               vader5::Config& cfg) -> bool {
+    const std::string path = resolve_config_path(base, profile);
     auto loaded = vader5::Config::load(path);
     if (!loaded) {
         std::cerr << "vader5d: reload failed, keeping current config\n";
@@ -98,10 +150,10 @@ auto do_reload(vader5::Gamepad& gamepad, const std::string& path, vader5::Config
     }
     cfg = *loaded;
     if (!gamepad.reload(cfg)) {
-        std::cout << "vader5d: config change needs device reinit, reconnecting\n";
+        std::cout << "vader5d: reconnecting for " << path << "\n";
         return true;
     }
-    std::cout << "vader5d: config reloaded\n";
+    std::cout << "vader5d: reloaded " << path << "\n";
     return false;
 }
 }
@@ -109,7 +161,7 @@ auto do_reload(vader5::Gamepad& gamepad, const std::string& path, vader5::Config
 auto main(int argc, char** argv) -> int {
     const auto args = parse_args(argc, argv);
     if (args.check_config) {
-        return run_check_config(args.config_path);
+        return run_check_config(resolve_config_path(args.config_path, args.profile));
     }
     if (args.list_keys) {
         print_keys();
@@ -119,9 +171,13 @@ auto main(int argc, char** argv) -> int {
         print_buttons();
         return 0;
     }
+    if (args.list_profiles) {
+        print_profiles(args.config_path);
+        return 0;
+    }
 
     vader5::Config cfg;
-    const std::string& config_path = args.config_path;
+    const std::string config_path = resolve_config_path(args.config_path, args.profile);
     if (auto loaded = vader5::Config::load(config_path); loaded) {
         cfg = *loaded;
         std::cout << "vader5d: Loaded config from " << config_path << " ("
@@ -168,7 +224,7 @@ auto main(int argc, char** argv) -> int {
 
         while (g_running.load(std::memory_order_relaxed)) {
             if (g_reload.exchange(false, std::memory_order_relaxed) &&
-                do_reload(*gamepad, config_path, cfg)) {
+                do_reload(*gamepad, args.config_path, args.profile, cfg)) {
                 break;
             }
             const int ret = ppoll(pfds.data(), pfds.size(), nullptr, &empty_mask);

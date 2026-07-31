@@ -31,6 +31,29 @@ restarting: `sudo systemctl reload 'vader5d@*'` (or `kill -HUP <pid>`). The driv
 re-reads the config in place; if the change needs new virtual devices (toggling
 `emulate_elite`, or adding/removing the mouse device), it reconnects automatically.
 
+## Profiles
+
+Keep several configs side by side and switch between them live. Put each one in
+`<config-dir>/profiles/<name>.toml` (for the systemd service that is
+`/etc/vader5/profiles/`), e.g. `elite.toml` and `keyboard.toml`.
+
+The active profile is recorded in `<config-dir>/active` (a file containing just the
+profile name). The driver resolves it at startup and on every reload, so switching
+is live. If `active` is missing or empty, the driver falls back to plain
+`config.toml`.
+
+```bash
+./build/vader5d --list-profiles            # list profiles in <config-dir>/profiles
+./build/vader5d --profile keyboard -c ...  # force a specific profile (ignores active)
+
+# Switch the running service's profile (validates, updates active, reloads):
+./install/install.sh profile keyboard
+./install/install.sh profile              # no name = list installed profiles
+```
+
+Switching between profiles that differ in `emulate_elite` triggers an automatic
+reconnect (new virtual devices); same-mode switches apply with no input drop.
+
 ## Basic Settings
 
 ```toml

@@ -79,6 +79,29 @@ update_config() {
     success "System config updated and service restarted"
 }
 
+switch_profile() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        info "Available profiles in /etc/vader5/profiles:"
+        ls -1 /etc/vader5/profiles/*.toml 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.toml$//'
+        return 0
+    fi
+    local file="/etc/vader5/profiles/$name.toml"
+    if [[ ! -f "$file" ]]; then
+        error "No profile at $file"
+        return 1
+    fi
+    if [[ -x /usr/local/bin/vader5d ]]; then
+        /usr/local/bin/vader5d --check-config -c "$file" || {
+            error "Profile '$name' failed validation, not switching"
+            return 1
+        }
+    fi
+    echo "$name" | sudo tee /etc/vader5/active >/dev/null
+    sudo systemctl reload 'vader5d@*' 2>/dev/null || true
+    success "Switched to profile '$name'"
+}
+
 uninstall() {
     info "Uninstalling..."
     sudo systemctl stop system-vader5d.slice 2>/dev/null || true
@@ -101,6 +124,7 @@ usage() {
     echo "  udev       Install udev rules only"
     echo "  config     Create user config"
     echo "  update-config  Copy repo config to /etc/vader5 and restart the service"
+    echo "  profile [name] Switch active profile (no name lists them)"
     echo "  install    Full install (build + udev + config + binaries + systemd)"
     echo "  uninstall  Remove installed files"
     echo ""
@@ -112,6 +136,7 @@ case "${1:-}" in
     udev)      install_udev ;;
     config)    install_config ;;
     update-config) update_config ;;
+    profile)   switch_profile "${2:-}" ;;
     install)   build && install_udev && install_config && install_bin && install_systemd ;;
     uninstall) uninstall ;;
     -h|--help) usage ;;
