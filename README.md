@@ -1,4 +1,6 @@
-# Flydigi Vader 5 Pro Linux Driver
+# This Fork was made mainly for my personal use
+
+## Flydigi Vader 5 Pro Linux Driver
 
 Linux userspace driver for the Flydigi Vader 5 Pro gamepad (2.4G USB dongle).
 
