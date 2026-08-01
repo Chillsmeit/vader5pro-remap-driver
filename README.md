@@ -9,7 +9,7 @@ Linux userspace driver for the Flydigi Vader 5 Pro gamepad (2.4G USB dongle).
   - **elite** (Xbox Elite emulation with Steam paddle support, M1-M4)
 - Gyro support: mouse mode or map to right stick (for games without gyro)
 - Layer system with tap-hold (like QMK keyboard firmware)
-- Button remap to keyboard/mouse — including key combos (`KEY_LEFTCTRL+KEY_C`) and any raw evdev code (`code:N`)
+- Button remap to keyboard/mouse, including key combos (`KEY_LEFTCTRL+KEY_C`) and any raw evdev code (`code:N`)
 - Live config reload (no restart), config validation, and a hardened systemd service
 
 ## Quick Start
@@ -20,7 +20,8 @@ cd vader5pro-remap-driver
 ./install/install.sh install   # build + udev + systemd service (auto-starts via udev)
 ```
 
-The service starts on the **keyboard** profile by default. Switch modes at any time with:
+The service starts on the **keyboard** profile by default. <br>
+Switch modes at any time with:
 
 ```bash
 sudo vader5d --switch-profile keyboard   # standalone, no Steam Input
@@ -37,8 +38,9 @@ sudo ./build/vader5d -c /etc/vader5/profiles/keyboard.toml
 ## Profiles
 
 Profiles live in `/etc/vader5/profiles/*.toml` (or `~/.config/vader5/profiles/` for a
-manual run). The active one is recorded in `.../active`; switching validates the
-profile, updates `active`, and reloads the running daemon live — no restart.
+manual run). <br>
+The active one is recorded in `.../active`; switching validates the
+profile, updates `active`, and reloads the running daemon live.
 
 | Profile | `emulate_elite` | Needs Steam Input? | What it does |
 |---------|-----------------|--------------------|--------------|
@@ -112,7 +114,7 @@ Only one layer active at a time (first activated wins)
 
 ## Configuration
 
-Profiles live in `config/profiles/*.toml` (installed to `/etc/vader5/profiles/`).<br>
+Profiles live in `config/profiles/*.toml` (installed to `/etc/vader5/profiles/`). <br>
 Below is the `elite` profile as an example:
 
 ```toml
@@ -171,9 +173,8 @@ Z  = "KEY_4"
 
 Remap values can be keyboard keys (`KEY_A`), mouse buttons (`mouse_left`), other
 gamepad buttons, key combos (`KEY_LEFTCTRL+KEY_C`), raw evdev codes (`code:73`), or
-`disabled`. Run `vader5d --list-keys` for the full list; unknown values are skipped
-with a warning at startup.
-
+`disabled`. <br>
+Run `vader5d --list-keys` for the full list.
 See [docs/configuration.md](docs/configuration.md) for full options.
 
 ## Steam Paddles
